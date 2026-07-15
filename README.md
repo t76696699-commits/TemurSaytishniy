@@ -1,39 +1,43 @@
- LocalStorage
-Урок 13 из 15
+Massivlarning qidiruv va o'zgarish metodlari
+Урок 14 из 15
 · 3 раздела
 ✓ Пройден
 📝
 Текст
 Текст
 #1
-setItem k v
+indexOf
 
-getItem k
+includes
 
-removeItem k
+find
 
-JSON.stringify
+filter
 
-JSON.parse
+map
 
-localStorage
+reduce
 
-browser save
+sort
 
-string yoki null
+array
 
-ochiriladi
+index yoki -1
 
-object array
+true false
 
-string
+birinchi mos
 
-object qaytadi
+yangi array
 
-LocalStorage — Ma'lumotlarni brauzer xotirasida saqlash
-Shu vaqtgacha biz yaratgan dasturlarda (masalan, "Mehmonlar ro'yxati" yoki "Vazifalar ro'yxati" loyihalarida) bitta muammo bor edi: agar brauzer sahifasini yangilasak (Refresh qilsak), barcha kiritilgan ma'lumotlar o'chib ketardi.
+transform
 
-Bugun ma'lumotlarni foydalanuvchi kompyuterida (brauzerida) doimiy saqlashni o'rganamiz. Buning uchun LocalStorage (Mahalliy xotira) ishlatiladi. LocalStorage-ga yozilgan ma'lumotlar brauzer yopilsa ham, kompyuter o'chirib yoqilsa ham o'chib ketmaydi.
+bitta qiymat
+
+saralash
+
+Massivlarning qidiruv va o'zgarish metodlari — map, filter, find
+5-darsda biz massivlar bilan ishlashning oddiy usullarini (push, pop) ko'rgan edik. Real loyihalarda esa massiv ichidagi yuzlab ma'lumotlar orasidan keraklisini qidirib topish, saralash yoki ularni o'zgartirish talab etiladi. Buning uchun JavaScript-da juda kuchli va zamonaviy metodlar mavjud.
 
 💻
 Код
@@ -41,10 +45,10 @@ Bugun ma'lumotlarni foydalanuvchi kompyuterida (brauzerida) doimiy saqlashni o'r
 #2
 javascript
  Копировать
-// 1. Ismni xotiraga "foydalanuvchi" kaliti bilan saqlaymiz
-localStorage.setItem("foydalanuvchi", "Sardor");
+let eskiNarxlar = [1000, 2000, 3000];
 
-// 2. Sahifa yangilanganda xotiradan o'sha ismni qayta o'qib olamiz
-let ism = localStorage.getItem("foydalanuvchi");
+let yangiNarxlar = eskiNarxlar.map(function(narx) {
+    return narx * 2; 
+});
 
-console.log(ism); // Natija: Sardor
+console.log(yangiNarxlar); // Natija: [2000, 4000, 6000]
