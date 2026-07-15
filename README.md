@@ -2,89 +2,54 @@
 <html lang="uz">
 <head>
     <meta charset="UTF-8">
-    <title>Interaktiv Kalkulyator va Rejimlar</title>
+    <title>Pagination Loyihasi</title>
     <style>
-        body { transition: 0.5s; font-family: sans-serif; padding: 20px; }
-        .box { border: 1px solid #ccc; padding: 20px; margin-bottom: 20px; border-radius: 8px; background: rgba(255,255,255,0.1); }
-        /* Kalkulyator dizayni */
-        .calculator { max-width: 300px; }
-        #display { width: 100%; height: 40px; font-size: 20px; text-align: right; margin-bottom: 10px; }
-        .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-        button { padding: 10px; cursor: pointer; }
-        #history { font-size: 12px; color: #555; }
+        .cards { display: flex; gap: 10px; margin-bottom: 20px; }
+        .card { padding: 20px; border: 1px solid #333; border-radius: 5px; }
+        .nav { margin-top: 10px; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
 <body>
 
-    <div class="box calculator">
-        <h3>Kalkulyator</h3>
-        <input type="text" id="display" placeholder="0">
-        <div class="buttons">
-            <button onclick="clearDisplay()">C</button>
-            <button onclick="input('/')">/</button>
-            <button onclick="input('*')">*</button>
-            <button onclick="input('%')">%</button>
-            <button onclick="input('7')">7</button>
-            <button onclick="input('8')">8</button>
-            <button onclick="input('9')">9</button>
-            <button onclick="input('-')">-</button>
-            <button onclick="input('4')">4</button>
-            <button onclick="input('5')">5</button>
-            <button onclick="input('6')">6</button>
-            <button onclick="input('+')">+</button>
-            <button onclick="input('1')">1</button>
-            <button onclick="input('2')">2</button>
-            <button onclick="input('3')">3</button>
-            <button onclick="calculate()" style="grid-row: span 2;">=</button>
-            <button onclick="input('0')" style="grid-column: span 2;">0</button>
-        </div>
-        <div id="history">Oxirgi 5 ta hisoblash:</div>
+    <div id="cardsContainer" class="cards"></div>
+    
+    <div class="nav">
+        <button id="prevBtn">Oldinga</button>
+        <span id="pageNumbers"></span>
+        <button id="nextBtn">Orqaga</button>
     </div>
 
     <script>
-        let display = document.getElementById("display");
-        let history = [];
+        const data = ["1-Ma'lumot", "2-Ma'lumot", "3-Ma'lumot", "4-Ma'lumot", "5-Ma'lumot", "6-Ma'lumot", "7-Ma'lumot"];
+        let currentPage = 1;
+        const itemsPerPage = 3;
 
-        function input(val) { display.value += val; }
-        function clearDisplay() { display.value = ""; }
-
-        function calculate() {
-            let expression = display.value;
-            // Validatsiya: && va || operatorlari yordamida bo'shlik yoki noto'g'ri belgini tekshirish
-            if (expression === "" || expression.includes("/0")) {
-                display.value = "Xato!";
-                return;
+        function render() {
+            const container = document.getElementById("cardsContainer");
+            const pageNumbers = document.getElementById("pageNumbers");
+            container.innerHTML = "";
+            
+            // 1. Kartochkalarni render qilish (for tsikli)
+            let start = (currentPage - 1) * itemsPerPage;
+            let end = start + itemsPerPage;
+            for (let i = start; i < end && i < data.length; i++) {
+                let div = document.createElement("div");
+                div.className = "card";
+                div.innerText = data[i];
+                container.appendChild(div);
             }
 
-            let result;
-            // switch-case orqali amalni aniqlash (oddiy misollar uchun)
-            // Kengaytirilgan hisoblash uchun eval() ishlatamiz, lekin % ni alohida ajratamiz
-            try {
-                if (expression.includes("%")) {
-                    result = eval(expression.replace("%", "/100"));
-                } else {
-                    result = eval(expression);
-                }
-                
-                display.value = result;
-                updateHistory(expression + " = " + result);
-            } catch {
-                display.value = "Xato!";
-            }
+            // 2. Sahifa raqamlarini render qilish
+            pageNumbers.innerText = ` Sahifa: ${currentPage} `;
+            document.getElementById("prevBtn").disabled = currentPage === 1;
+            document.getElementById("nextBtn").disabled = currentPage >= Math.ceil(data.length / itemsPerPage);
         }
 
-        function updateHistory(entry) {
-            history.unshift(entry);
-            if (history.length > 5) history.pop();
-            document.getElementById("history").innerHTML = "Oxirgi 5 ta: <br>" + history.join("<br>");
-        }
+        document.getElementById("prevBtn").addEventListener("click", () => { currentPage--; render(); });
+        document.getElementById("nextBtn").addEventListener("click", () => { currentPage++; render(); });
 
-        // Klaviatura qisqa yo'llari
-        document.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") calculate();
-            else if (e.key === "Escape") clearDisplay();
-            else if ("0123456789+-*/%".includes(e.key)) input(e.key);
-        });
+        render();
     </script>
 </body>
 </html>
