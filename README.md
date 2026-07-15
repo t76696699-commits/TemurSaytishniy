@@ -1,54 +1,31 @@
-Massivlarning qidiruv va o'zgarish metodlari
-Урок 14 из 15
-· 3 раздела
-✓ Пройден
-📝
-Текст
-Текст
-#1
-indexOf
+<!DOCTYPE html>
+<html>
+<body>
 
-includes
+    <h1 id="hisob">0</h1>
+    <button id="oshirishBtn">Oshirish (+1)</button>
 
-find
+    <script src="script.js"></script>
+</body>
+</html>
 
-filter
+let hisobMatn = document.getElementById("hisob");
+let tugma = document.getElementById("oshirishBtn");
 
-map
+// 1. Sahifa yuklanganda LocalStorage-dan eski qiymatni olish
+// Agar qiymat bo'lmasa, 0 dan boshlaymiz
+let ochko = localStorage.getItem("hisobQiymati") ? parseInt(localStorage.getItem("hisobQiymati")) : 0;
 
-reduce
+// Sahifa yuklanishi bilan ekranga oxirgi saqlangan qiymatni chiqarish
+hisobMatn.innerText = ochko;
 
-sort
-
-array
-
-index yoki -1
-
-true false
-
-birinchi mos
-
-yangi array
-
-transform
-
-bitta qiymat
-
-saralash
-
-Massivlarning qidiruv va o'zgarish metodlari — map, filter, find
-5-darsda biz massivlar bilan ishlashning oddiy usullarini (push, pop) ko'rgan edik. Real loyihalarda esa massiv ichidagi yuzlab ma'lumotlar orasidan keraklisini qidirib topish, saralash yoki ularni o'zgartirish talab etiladi. Buning uchun JavaScript-da juda kuchli va zamonaviy metodlar mavjud.
-
-💻
-Код
-Код
-#2
-javascript
- Копировать
-let eskiNarxlar = [1000, 2000, 3000];
-
-let yangiNarxlar = eskiNarxlar.map(function(narx) {
-    return narx * 2; 
+// 2. Tugmaga bosilganda amalga oshiriladigan ishlar
+tugma.addEventListener("click", function() {
+    ochko++; // Ochkoni oshirish
+    
+    // Ekranni yangilash
+    hisobMatn.innerText = ochko;
+    
+    // LocalStorage-ga yangi qiymatni saqlash
+    localStorage.setItem("hisobQiymati", ochko);
 });
-
-console.log(yangiNarxlar); // Natija: [2000, 4000, 6000]
