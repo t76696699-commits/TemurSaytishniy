@@ -1,61 +1,50 @@
 # TemurSaytishniy
-for va while.
-Урок 5 из 15
+ Massivlar (Arrays) — Ma'lumotlar to'plami
+Урок 6 из 15
 · 3 раздела
-✓ Пройден
 📝
 Текст
 Текст
 #1
-yes
+arr 0
 
-no
+arr.length
 
-yes
+push 40
 
-break
+pop
 
-continue
+map filter forEach
 
-no
+arr.indexOf
 
-for init cond step
+arr = 10, 20, 30
 
-body har iter
+birinchi 10
 
-cond true
+uzunlik 3
 
-loop tugadi
+yangi oxirda
 
-while cond
+oxirgi qaytadi
 
-cond true
+yangi array
 
-body
+index yoki -1
 
-JavaScript Tsikllari (Loops)
-Tsikl o'zi nima va nima uchun kerak?
-Tsikl (Loop) — bu ma'lum bir kodlar blokini bir necha marta qayta-qayta bajarish uchun ishlatiladigan dasturlash vositasi.
-
-Dasturlashda ko'p hollarda bir xil harakatni takrorlashga to'g'ri keladi. Masalan, konsolga 1 dan 100 gacha bo'lgan sonlarni chiqarish kerak deylik. Tsikllarsiz biz 100 qator console.log() yozishga majbur bo'lardik. Tsikl yordamida esa buni bor-yo'g'i 3 qator kod bilan hal qilish mumkin.
-
-Web-dasturlashda tsikllar juda muhim o'rin tutadi:
-
-Internet do'kondagi yuzlab mahsulotlarni sahifaga birma-bir chiqarishda.
-
-Foydalanuvchining kiritgan paroli to'g'ri bo'lmaguncha qayta so'rashda.
-
-Ma'lumotlar bazasidagi ro'yxatlarni aylanib chiqishda.
-
-JavaScript-da eng ko'p ishlatiladigan ikkita asosiy tsikl mavjud: for va while.
-
+Dasturlashda ko'p miqdordagi ma'lumotlarni bitta joyda tartibli saqlash uchun Massivlar (Arrays) ishlatiladi. Masalan, guruhdagi 10 ta o'quvchining ismini saqlash uchun 10 ta alohida o'zgaruvchi ochish o'rniga, bitta massiv ichiga hammasini jamlash qulay.
 💻
 Код
 Код
 #2
 javascript
  Копировать
-// Kod namunasi: 1 dan 5 gacha sanash
-for (let i = 1; i <= 5; i++) {
-    console.log("Bu " + i + "-chi aylanish");
-}
+let mevalar = ["Olma", "Anor", "Banan"];
+
+// Massiv elementlarini indeks orqali chaqirish:
+console.log(mevalar[0]); // Konsolga "Olma" chiqadi
+console.log(mevalar[1]); // Konsolga "Anor" chiqadi
+console.log(mevalar[2]); // Konsolga "Banan" chiqadi
+
+// Massiv ichida nechta element borligini aniqlash (.length):
+console.log(mevalar.length); // Natija: 3
