@@ -1,16 +1,12 @@
 # TemurSaytishniy
-Vazifa sharti:
-Onlayn do'kon tizimi uchun ikkita funksiyadan iborat kichik dastur tuzing:
+let yigindi = 0;
 
-hisobla nomli funksiya yarating. U 2 ta parametr qabul qilsin: mahsulotNarxi va miqdori. Funksiya bularni o'zaro ko'paytirib, umumiy summani return orqali qaytarsin.
+// 1 dan 50 gacha bo'lgan sonlar (50 ham kirishi uchun <= ishlatamiz)
+for (let i = 1; i <= 50; i++) {
+    // Sonning juftligini tekshirish (2 ga bo'lganda qoldiq 0 bo'lishi kerak)
+    if (i % 2 === 0) {
+        yigindi += i;
+    }
+}
 
-chegirmaBer nomli ikkinchi funksiya yarating. U 1 ta umumiySumma parametrini qabul qilsin.
-
-Agar umumiy summa 100 000 so'mdan ko'p bo'lsa, unga 10% chegirma hisoblab, yakuniy to'lanadigan pulni return qilsin.
-
-Aks holda, chegirmasiz asl narxni qaytarsin.
-
-Dastur so'ngida ushbu ikki funksiyani ketma-ket chaqirib, foydalanuvchi 3 ta 40 000 so'mlik mahsulot olgandagi yakuniy to'lov miqdorini konsolga chiqaring.
- Стек технологий
-🛠 Loyiha uchun ishlatiladigan kodlar (G'ishtchalar): function hisobla(mahsulotNarxi
-miqdori) { ... } return mahsulotNarxi * miqdori; if (umumiySumma > 100000) { ... } 10% chegirmali narxni hisoblash formulasi: umumiySumma * 0.9
+console.log("1 dan 50 gacha bo'lgan juft sonlar yig'indisi: " + yigindi);
