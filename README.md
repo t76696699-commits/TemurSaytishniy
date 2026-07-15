@@ -1,31 +1,57 @@
-<!DOCTYPE html>
-<html>
-<body>
+<div class="calculator">
+    <input type="text" id="display" disabled>
+    <div class="buttons">
+        <button onclick="clearDisplay()" class="btn-c">C</button>
+        <button onclick="appendToDisplay('/')">/</button>
+        <button onclick="appendToDisplay('*')">*</button>
+        <button onclick="appendToDisplay('7')">7</button>
+        <button onclick="appendToDisplay('8')">8</button>
+        <button onclick="appendToDisplay('9')">9</button>
+        <button onclick="appendToDisplay('-')">-</button>
+        <button onclick="appendToDisplay('4')">4</button>
+        <button onclick="appendToDisplay('5')">5</button>
+        <button onclick="appendToDisplay('6')">6</button>
+        <button onclick="appendToDisplay('+')">+</button>
+        <button onclick="appendToDisplay('1')">1</button>
+        <button onclick="appendToDisplay('2')">2</button>
+        <button onclick="appendToDisplay('3')">3</button>
+        <button onclick="calculate()" class="btn-equal">=</button>
+        <button onclick="appendToDisplay('0')" class="btn-zero">0</button>
+    </div>
+</div>
 
-    <h1 id="hisob">0</h1>
-    <button id="oshirishBtn">Oshirish (+1)</button>
+.calculator { max-width: 300px; margin: auto; padding: 20px; border: 1px solid #ccc; }
+#display { width: 100%; height: 40px; font-size: 20px; text-align: right; }
+.buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
+button { padding: 15px; cursor: pointer; }
+@media (max-width: 400px) { .calculator { width: 90%; } } 
 
-    <script src="script.js"></script>
-</body>
-</html>
+const display = document.getElementById("display");
 
-let hisobMatn = document.getElementById("hisob");
-let tugma = document.getElementById("oshirishBtn");
+function appendToDisplay(input) { display.value += input; }
 
-// 1. Sahifa yuklanganda LocalStorage-dan eski qiymatni olish
-// Agar qiymat bo'lmasa, 0 dan boshlaymiz
-let ochko = localStorage.getItem("hisobQiymati") ? parseInt(localStorage.getItem("hisobQiymati")) : 0;
+function clearDisplay() { display.value = ""; }
 
-// Sahifa yuklanishi bilan ekranga oxirgi saqlangan qiymatni chiqarish
-hisobMatn.innerText = ochko;
+function calculate() {
+    try {
+        // Nolga bo'lishni tekshirish
+        if (display.value.includes("/0")) {
+            display.value = "Xato: Nolga bo'lish";
+        } else {
+            display.value = eval(display.value);
+        }
+    } catch {
+        display.value = "Xato";
+    }
+}
 
-// 2. Tugmaga bosilganda amalga oshiriladigan ishlar
-tugma.addEventListener("click", function() {
-    ochko++; // Ochkoni oshirish
-    
-    // Ekranni yangilash
-    hisobMatn.innerText = ochko;
-    
-    // LocalStorage-ga yangi qiymatni saqlash
-    localStorage.setItem("hisobQiymati", ochko);
+// Klaviatura bilan ishlash
+document.addEventListener("keydown", (event) => {
+    if (event.key >= 0 && event.key <= 9 || event.key === '+' || event.key === '-' || event.key === '*' || event.key === '/') {
+        appendToDisplay(event.key);
+    } else if (event.key === 'Enter') {
+        calculate();
+    } else if (event.key === 'Escape') {
+        clearDisplay();
+    }
 });
