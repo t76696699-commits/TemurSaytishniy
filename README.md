@@ -1,33 +1,30 @@
-let mashina = {
-    brend: "Chevrolet",
-    model: "Gentra",
-    yil: 2022,
-    narx: 13000,
-    tanirovka: false,
+<!DOCTYPE html>
+<html>
+<body>
 
-    // Malumotlarni ekranga chiqarish metodi
-    malumotBering: function() {
-        console.log(`Brend: ${this.brend}, Model: ${this.model}, Narxi: ${this.narx}$`);
-    },
+    <h1 id="sarlavha">Sayt sarlavhasi</h1>
+    <p id="matn">Bu matn qismi, tugmani bosib rangini o'zgartiring.</p>
+    <button id="tugma">Tungi rejimga o'tish</button>
 
-    // Tanirovka qildirish va narxni oshirish metodi
-    tanirovkaQildir: function() {
-        this.tanirovka = true;
-        this.narx += 500;
-        console.log("Tanirovka o'rnatildi va narx yangilandi.");
-    }
-};
+    <script src="script.js"></script>
+</body>
+</html>
 
-// 1. Obyektga tashqaridan rang xususiyatini qo'shish
-mashina.rang = "To'q kulrang";
+// Elementlarni tanlab olish
+let tugma = document.getElementById("tugma");
+let sarlavha = document.getElementById("sarlavha");
+let matn = document.getElementById("matn");
 
-// 2. Obyektga tashqaridan narxni yangilash
-mashina.narx = 12500;
-
-// 3. Metodlarni chaqirish va natijani tekshirish
-mashina.malumotBering();      // Dastlabki holat
-mashina.tanirovkaQildir();    // Tanirovka qilish
-mashina.malumotBering();      // O'zgarishdan keyingi holat
-
-// 4. Oxirgi obyektni konsolga to'liq chiqarish
-console.log(mashina);
+// Tugmaga bosish hodisasini biriktirish
+tugma.addEventListener("click", function() {
+    
+    // 1. Sahifa fonini qora qilish
+    document.body.style.backgroundColor = "black";
+    
+    // 2. Sarlavha va matn rangini oq qilish
+    sarlavha.style.color = "white";
+    matn.style.color = "white";
+    
+    // 3. Tugma matnini yangilash
+    tugma.innerText = "Kunduzgi rejimga o'tish";
+});
