@@ -1,30 +1,45 @@
 <!DOCTYPE html>
-<html>
+<html lang="uz">
 <body>
 
-    <h1 id="sarlavha">Sayt sarlavhasi</h1>
-    <p id="matn">Bu matn qismi, tugmani bosib rangini o'zgartiring.</p>
-    <button id="tugma">Tungi rejimga o'tish</button>
+    <input type="text" id="ismInput" placeholder="Ismingizni kiriting...">
+    <button id="qoshishBtn">Qo'shish</button>
+    
+    <ul id="royxat"></ul>
 
     <script src="script.js"></script>
 </body>
 </html>
 
-// Elementlarni tanlab olish
-let tugma = document.getElementById("tugma");
-let sarlavha = document.getElementById("sarlavha");
-let matn = document.getElementById("matn");
+// 1. Elementlarni o'zgaruvchilarga tutib olish
+let input = document.getElementById("ismInput");
+let qoshishBtn = document.getElementById("qoshishBtn");
+let ul = document.getElementById("royxat");
 
-// Tugmaga bosish hodisasini biriktirish
-tugma.addEventListener("click", function() {
-    
-    // 1. Sahifa fonini qora qilish
-    document.body.style.backgroundColor = "black";
-    
-    // 2. Sarlavha va matn rangini oq qilish
-    sarlavha.style.color = "white";
-    matn.style.color = "white";
-    
-    // 3. Tugma matnini yangilash
-    tugma.innerText = "Kunduzgi rejimga o'tish";
+// 2. Tugmaga hodisa (event) biriktirish
+qoshishBtn.addEventListener("click", function() {
+    let matn = input.value;
+
+    // Agar input bo'sh bo'lmasa, element yaratamiz
+    if (matn !== "") {
+        // Yangi <li> elementi yaratish
+        let li = document.createElement("li");
+        li.innerText = matn + " "; // Ismni qo'shish
+
+        // O'chirish tugmasini yaratish
+        let ochirishBtn = document.createElement("button");
+        ochirishBtn.innerText = "X";
+
+        // O'chirish tugmasiga bosilganda elementni olib tashlash
+        ochirishBtn.addEventListener("click", function() {
+            li.remove();
+        });
+
+        // Tugmani <li> ichiga, <li> ni esa <ul> ichiga joylash
+        li.appendChild(ochirishBtn);
+        ul.appendChild(li);
+
+        // 3. Inputni tozalash
+        input.value = "";
+    }
 });
