@@ -1,59 +1,38 @@
 # TemurSaytishniy
-// ── 1. Mantiqiy operatorlar ─────────────────────────────────────────────
+// ── Modul 1 takrorlash: uchta darsni birlashtirgan kichik dastur ────────
+//
+// Ssenariy: kafe buyurtmasi. Foydalanuvchi ovqat turi va to'lov usulini
+// tanlaydi. Dastur yetarli pul borligini tekshiradi va xabar chiqaradi.
 
-let pul = true;
-let karta = false;
+const SOLIH_NARX = 25000;      // const — o'zgarmaydigan narx
+let buyurtmaTuri = "lavash";   // string
+let toLovUsuli  = "naqd";      // string
+let pulMiqdori  = 30000;       // number — hamyondagi pul
+let bonusKarta  = false;       // boolean — chegirma kartasi bormi?
 
-// YOKI (||) — bittasi to'g'ri bo'lsa yetarli
-if (pul || karta) {
-    console.log("Xarid qilishingiz mumkin.");
+// 1) if / else if / else + mantiqiy operatorlar
+if (buyurtmaTuri === "lavash" && (pulMiqdori >= SOLIH_NARX || bonusKarta)) {
+    console.log("Buyurtmangiz qabul qilindi.");
+} else if (!bonusKarta && pulMiqdori < SOLIH_NARX) {
+    console.log("Mablag' yetarli emas.");
+} else {
+    console.log("Boshqa taom tanlang.");
 }
 
-// VA (&&) — ikkalasi ham true bo'lishi kerak
-let bilet = true;
-let pasport = true;
-if (bilet && pasport) {
-    console.log("Samolyotga chiqing.");
-}
-
-// EMAS (!) — shartni teskariga aylantiradi
-let yomgir = false;
-if (!yomgir) {
-    console.log("Ko'chaga chiqishimiz mumkin.");
-}
-
-// Qat'iy taqqoslash (===) qiymat + turni birga tekshiradi
-console.log("10" == 10);   // true  (== — turini o'zgartiradi)
-console.log("10" === 10);  // false (=== — turi ham muhim)
-
-
-// ── 2. Switch-case ─────────────────────────────────────────────────────
-
-let kunRaqami = 3;
-
-switch (kunRaqami) {
-    case 1:
-        console.log("Dushanba");
+// 2) switch-case — to'lov usuli bo'yicha xabar
+switch (toLovUsuli) {
+    case "naqd":
+        console.log("Naqd to'lov qabul qilindi.");
         break;
-    case 2:
-        console.log("Seshanba");
-        break;
-    case 3:
-        console.log("Chorshanba");
-        break;
-    case 4:
-        console.log("Payshanba");
-        break;
-    case 5:
-        console.log("Juma");
-        break;
-    case 6:
-    case 7:
-        // Bir nechta case'ni birlashtirish — break yo'q, pastga "tushadi"
-        console.log("Dam olish kuni");
+    case "karta":
+    case "click":
+    case "payme":
+        // Bir nechta case birlashtirilgan — barchasi onlayn to'lov
+        console.log("Onlayn to'lov qayta ishlanmoqda...");
         break;
     default:
-        // Hech qaysi case mos kelmasa shu blok ishlaydi
-        console.log("Noto'g'ri kun raqami (1-7 bo'lishi kerak)");
+        console.log("Noma'lum to'lov usuli.");
 }
-// Natija: "Chorshanba"
+// Kutilgan natija:
+//   "Buyurtmangiz qabul qilindi."
+//   "Naqd to'lov qabul qilindi."
