@@ -1,41 +1,90 @@
-<style>
-    body { transition: background-color 0.5s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .container { text-align: center; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
-    .buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
-    button { padding: 10px; cursor: pointer; border: none; border-radius: 5px; }
-    #hex-code { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
-</style>
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <title>Interaktiv Kalkulyator va Rejimlar</title>
+    <style>
+        body { transition: 0.5s; font-family: sans-serif; padding: 20px; }
+        .box { border: 1px solid #ccc; padding: 20px; margin-bottom: 20px; border-radius: 8px; background: rgba(255,255,255,0.1); }
+        /* Kalkulyator dizayni */
+        .calculator { max-width: 300px; }
+        #display { width: 100%; height: 40px; font-size: 20px; text-align: right; margin-bottom: 10px; }
+        .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+        button { padding: 10px; cursor: pointer; }
+        #history { font-size: 12px; color: #555; }
+    </style>
+</head>
+<body>
 
-<div class="container">
-    <div id="hex-code">#FFFFFF</div>
-    <div class="buttons">
-        <button onclick="changeColor('#FF5733')" style="background: #FF5733;">Qizil</button>
-        <button onclick="changeColor('#33FF57')" style="background: #33FF57;">Yashil</button>
-        <button onclick="changeColor('#3357FF')" style="background: #3357FF;">Ko'k</button>
-        <button onclick="changeColor('#F1C40F')" style="background: #F1C40F;">Sariq</button>
-        <button onclick="changeColor('#8E44AD')" style="background: #8E44AD;">Binafsha</button>
-        <button onclick="changeColor('#E67E22')" style="background: #E67E22;">To'q sariq</button>
-        <button onclick="randomColor()" style="grid-column: span 3; background: #333; color: white;">Tasodifiy rang</button>
+    <div class="box calculator">
+        <h3>Kalkulyator</h3>
+        <input type="text" id="display" placeholder="0">
+        <div class="buttons">
+            <button onclick="clearDisplay()">C</button>
+            <button onclick="input('/')">/</button>
+            <button onclick="input('*')">*</button>
+            <button onclick="input('%')">%</button>
+            <button onclick="input('7')">7</button>
+            <button onclick="input('8')">8</button>
+            <button onclick="input('9')">9</button>
+            <button onclick="input('-')">-</button>
+            <button onclick="input('4')">4</button>
+            <button onclick="input('5')">5</button>
+            <button onclick="input('6')">6</button>
+            <button onclick="input('+')">+</button>
+            <button onclick="input('1')">1</button>
+            <button onclick="input('2')">2</button>
+            <button onclick="input('3')">3</button>
+            <button onclick="calculate()" style="grid-row: span 2;">=</button>
+            <button onclick="input('0')" style="grid-column: span 2;">0</button>
+        </div>
+        <div id="history">Oxirgi 5 ta hisoblash:</div>
     </div>
-</div>
 
-const hexDisplay = document.getElementById("hex-code");
+    <script>
+        let display = document.getElementById("display");
+        let history = [];
 
-// Rangni o'zgartirish va saqlash funksiyasi
-function changeColor(color) {
-    document.body.style.backgroundColor = color;
-    hexDisplay.innerText = color;
-    localStorage.setItem("oxirgiRang", color);
-}
+        function input(val) { display.value += val; }
+        function clearDisplay() { display.value = ""; }
 
-// Tasodifiy rang yaratish funksiyasi
-function randomColor() {
-    const randomHex = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
-    changeColor(randomHex);
-}
+        function calculate() {
+            let expression = display.value;
+            // Validatsiya: && va || operatorlari yordamida bo'shlik yoki noto'g'ri belgini tekshirish
+            if (expression === "" || expression.includes("/0")) {
+                display.value = "Xato!";
+                return;
+            }
 
-// Sahifa yuklanganda saqlangan rangni tiklash
-window.onload = () => {
-    const savedColor = localStorage.getItem("oxirgiRang");
-    if (savedColor) changeColor(savedColor);
-};
+            let result;
+            // switch-case orqali amalni aniqlash (oddiy misollar uchun)
+            // Kengaytirilgan hisoblash uchun eval() ishlatamiz, lekin % ni alohida ajratamiz
+            try {
+                if (expression.includes("%")) {
+                    result = eval(expression.replace("%", "/100"));
+                } else {
+                    result = eval(expression);
+                }
+                
+                display.value = result;
+                updateHistory(expression + " = " + result);
+            } catch {
+                display.value = "Xato!";
+            }
+        }
+
+        function updateHistory(entry) {
+            history.unshift(entry);
+            if (history.length > 5) history.pop();
+            document.getElementById("history").innerHTML = "Oxirgi 5 ta: <br>" + history.join("<br>");
+        }
+
+        // Klaviatura qisqa yo'llari
+        document.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") calculate();
+            else if (e.key === "Escape") clearDisplay();
+            else if ("0123456789+-*/%".includes(e.key)) input(e.key);
+        });
+    </script>
+</body>
+</html>
