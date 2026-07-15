@@ -1,57 +1,41 @@
-<div class="calculator">
-    <input type="text" id="display" disabled>
+<style>
+    body { transition: background-color 0.5s ease; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .container { text-align: center; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+    .buttons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 20px; }
+    button { padding: 10px; cursor: pointer; border: none; border-radius: 5px; }
+    #hex-code { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+</style>
+
+<div class="container">
+    <div id="hex-code">#FFFFFF</div>
     <div class="buttons">
-        <button onclick="clearDisplay()" class="btn-c">C</button>
-        <button onclick="appendToDisplay('/')">/</button>
-        <button onclick="appendToDisplay('*')">*</button>
-        <button onclick="appendToDisplay('7')">7</button>
-        <button onclick="appendToDisplay('8')">8</button>
-        <button onclick="appendToDisplay('9')">9</button>
-        <button onclick="appendToDisplay('-')">-</button>
-        <button onclick="appendToDisplay('4')">4</button>
-        <button onclick="appendToDisplay('5')">5</button>
-        <button onclick="appendToDisplay('6')">6</button>
-        <button onclick="appendToDisplay('+')">+</button>
-        <button onclick="appendToDisplay('1')">1</button>
-        <button onclick="appendToDisplay('2')">2</button>
-        <button onclick="appendToDisplay('3')">3</button>
-        <button onclick="calculate()" class="btn-equal">=</button>
-        <button onclick="appendToDisplay('0')" class="btn-zero">0</button>
+        <button onclick="changeColor('#FF5733')" style="background: #FF5733;">Qizil</button>
+        <button onclick="changeColor('#33FF57')" style="background: #33FF57;">Yashil</button>
+        <button onclick="changeColor('#3357FF')" style="background: #3357FF;">Ko'k</button>
+        <button onclick="changeColor('#F1C40F')" style="background: #F1C40F;">Sariq</button>
+        <button onclick="changeColor('#8E44AD')" style="background: #8E44AD;">Binafsha</button>
+        <button onclick="changeColor('#E67E22')" style="background: #E67E22;">To'q sariq</button>
+        <button onclick="randomColor()" style="grid-column: span 3; background: #333; color: white;">Tasodifiy rang</button>
     </div>
 </div>
 
-.calculator { max-width: 300px; margin: auto; padding: 20px; border: 1px solid #ccc; }
-#display { width: 100%; height: 40px; font-size: 20px; text-align: right; }
-.buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 10px; }
-button { padding: 15px; cursor: pointer; }
-@media (max-width: 400px) { .calculator { width: 90%; } } 
+const hexDisplay = document.getElementById("hex-code");
 
-const display = document.getElementById("display");
-
-function appendToDisplay(input) { display.value += input; }
-
-function clearDisplay() { display.value = ""; }
-
-function calculate() {
-    try {
-        // Nolga bo'lishni tekshirish
-        if (display.value.includes("/0")) {
-            display.value = "Xato: Nolga bo'lish";
-        } else {
-            display.value = eval(display.value);
-        }
-    } catch {
-        display.value = "Xato";
-    }
+// Rangni o'zgartirish va saqlash funksiyasi
+function changeColor(color) {
+    document.body.style.backgroundColor = color;
+    hexDisplay.innerText = color;
+    localStorage.setItem("oxirgiRang", color);
 }
 
-// Klaviatura bilan ishlash
-document.addEventListener("keydown", (event) => {
-    if (event.key >= 0 && event.key <= 9 || event.key === '+' || event.key === '-' || event.key === '*' || event.key === '/') {
-        appendToDisplay(event.key);
-    } else if (event.key === 'Enter') {
-        calculate();
-    } else if (event.key === 'Escape') {
-        clearDisplay();
-    }
-});
+// Tasodifiy rang yaratish funksiyasi
+function randomColor() {
+    const randomHex = '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+    changeColor(randomHex);
+}
+
+// Sahifa yuklanganda saqlangan rangni tiklash
+window.onload = () => {
+    const savedColor = localStorage.getItem("oxirgiRang");
+    if (savedColor) changeColor(savedColor);
+};
