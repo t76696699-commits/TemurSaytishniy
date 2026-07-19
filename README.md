@@ -1,106 +1,139 @@
-1. Konfiguratsiya (.env o‘rniga config.js)
-Maxfiylik uchun tokenni alohida faylda saqlash tavsiya etiladi.
+O'qituvchining fikr-mulohazalarini tushundim. Oldingi xatolikni to'g'irlab, bu safar aynan BST (Ikkilik Qidiruv Daraxti) ma'lumotlar tuzilmasini, uning barcha talab qilingan metodlarini va reyting tizimi uchun maxsus qidiruv funksiyalarini implementatsiya qildim.
 
+BST Implementatsiyasi
 JavaScript
-// config.js
-export const CONFIG = {
-  GITHUB_TOKEN: 'your_github_token_here', // Yoki process.env.GITHUB_TOKEN
-  BASE_URL: 'https://api.github.com'
-};
-2. Universal API Wrapper
-AbortController va retry mexanizmi bilan birlashtirilgan fetch funksiyasi.
-
-JavaScript
-// api.js
-import { CONFIG } from './config.js';
-
-export async function api(url, options = {}, retries = 3, timeout = 5000) {
-  const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    const response = await fetch(`${CONFIG.BASE_URL}${url}`, {
-      ...options,
-      headers: {
-        'Authorization': `token ${CONFIG.GITHUB_TOKEN}`,
-        'Content-Type': 'application/json',
-        ...options.headers
-      },
-      signal: controller.signal
-    });
-
-    clearTimeout(id);
-    
-    // Rate limit tahlili
-    const remaining = response.headers.get('x-ratelimit-remaining');
-    console.log(`[Rate Limit] Qolgan so'rovlar: ${remaining}`);
-
-    if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    if (retries > 0) return api(url, options, retries - 1, timeout);
-    throw error;
+class BSTNode {
+  constructor(val, ism) {
+    this.value = val;
+    this.student = ism;
+    this.left = null;
+    this.right = null;
   }
 }
-3. Async Generator (Pagination uchun)
-Barcha repolarni sahifalar bo‘yicha avtomatik yuklab oluvchi generator.
 
-JavaScript
-// githubService.js
-import { api } from './api.js';
-
-export async function* getUserRepos(username) {
-  let page = 1;
-  while (true) {
-    const repos = await api(`/users/${username}/repos?per_page=100&page=${page}`);
-    if (repos.length === 0) break;
-    yield repos;
-    page++;
+class BST {
+  constructor() {
+    this.root = null;
   }
-}
-4. Asosiy mantiq va Jadval ko'rinishi
-Foydalanuvchi ma'lumotlarini olish va natijani chiroyli formatda chiqarish.
 
-JavaScript
-// main.js
-import { api } from './api.js';
-import { getUserRepos } from './githubService.js';
-
-async function fetchGitHubData(username) {
-  try {
-    // 1. User profile
-    const user = await api(`/users/${username}`);
-    console.log(`User: ${user.login} (${user.name})`);
-
-    // 2. Repositories
-    const tableData = [];
-    for await (const page of getUserRepos(username)) {
-      page.forEach(repo => {
-        tableData.push({
-          Name: repo.name,
-          Stars: repo.stargazers_count,
-          Forks: repo.forks_count,
-          Language: repo.language || 'N/A'
-        });
-      });
+  insert(val, ism) {
+    const newNode = new BSTNode(val, ism);
+    if (!this.root) {
+      this.root = newNode;
+      return this;
     }
+    const insertNode = (node, newNode) => {
+      if (newNode.value < node.value) {
+        if (!node.left) node.left = newNode;
+        else insertNode(node.left, newNode);
+      } else {
+        if (!node.right) node.right = newNode;
+        else insertNode(node.right, newNode);
+      }
+    };
+    insertNode(this.root, newNode);
+  }
 
-    // 3. Natijani jadval ko'rinishida chiqarish
-    console.table(tableData);
-    
-  } catch (err) {
-    console.error("Xatolik yuz berdi:", err.message);
+  search(val) {
+    const searchNode = (node, val) => {
+      if (!node) return null;
+      if (val === node.value) return node;
+      return val < node.value ? searchNode(node.left, val) : searchNode(node.right, val);
+    };
+    return searchNode(this.root, val);
+  }
+
+  delete(val) {
+    this.root = this._deleteNode(this.root, val);
+  }
+
+  _deleteNode(node, val) {
+    if (!node) return null;
+    if (val < node.value) node.left = this._deleteNode(node.left, val);
+    else if (val > node.value) node.right = this._deleteNode(node.right, val);
+    else {
+      // 1-holat: barg (leaf) yoki 2-holat: bitta bola
+      if (!node.left) return node.right;
+      if (!node.right) return node.left;
+      // 3-holat: ikkita bola
+      let minRight = this._findMin(node.right);
+      node.value = minRight.value;
+      node.student = minRight.student;
+      node.right = this._deleteNode(node.right, minRight.value);
+    }
+    return node;
+  }
+
+  _findMin(node) {
+    while (node.left) node = node.left;
+    return node;
+  }
+
+  min() { return this._findMin(this.root).value; }
+  
+  max() {
+    let node = this.root;
+    while (node.right) node = node.right;
+    return node.value;
+  }
+
+  // Traversal metodlari
+  inOrder(node = this.root, res = []) {
+    if (node) {
+      this.inOrder(node.left, res);
+      res.push({ baho: node.value, ism: node.student });
+      this.inOrder(node.right, res);
+    }
+    return res;
+  }
+
+  preOrder(node = this.root, res = []) {
+    if (node) {
+      res.push(node.value);
+      this.preOrder(node.left, res);
+      this.preOrder(node.right, res);
+    }
+    return res;
+  }
+
+  postOrder(node = this.root, res = []) {
+    if (node) {
+      this.postOrder(node.left, res);
+      this.postOrder(node.right, res);
+      res.push(node.value);
+    }
+    return res;
+  }
+
+  // Range qidiruv (75 dan yuqori baho olganlar)
+  findAbove(threshold, node = this.root, res = []) {
+    if (!node) return res;
+    if (node.value > threshold) this.findAbove(threshold, node.left, res);
+    if (node.value > threshold) res.push({ ism: node.student, baho: node.value });
+    this.findAbove(threshold, node.right, res);
+    return res;
   }
 }
+Test va Reyting Tizimi
+JavaScript
+const bst = new BST();
+const students = [
+  [85, "Ali"], [70, "Vali"], [95, "Gani"], [60, "Soli"], [75, "Hani"],
+  [90, "Zoir"], [80, "Karim"], [40, "Aziz"], [88, "Malika"], [92, "Dilorom"],
+  [55, "Komil"], [78, "Olim"], [98, "Sardor"], [65, "Jasur"], [82, "Fotima"]
+];
 
-fetchGitHubData('username');
-Asosiy funksionalliklar tushuntirishi:
-AbortController: timeout tugashi bilan so‘rovni to‘xtatadi, bu resurslarni tejashga yordam beradi.
+students.forEach(s => bst.insert(s[0], s[1]));
 
-Retry: api funksiyasi xatolik yuz berganda rekursiv tarzda yana 3 marta urinib ko‘radi.
+console.log("--- In-Order Reyting (O'sish tartibida) ---");
+console.table(bst.inOrder());
 
-Async Generator: yield orqali xotirani to‘ldirmasdan, sahifama-sahifa katta hajmdagi repolarni yuklash imkonini beradi.
+console.log("Eng past baho:", bst.min());
+console.log("Eng yuqori baho:", bst.max());
 
-Rate Limit: GitHub API javob sarlavhalaridagi x-ratelimit-remaining qiymatini konsolga chiqarib boradi.
+console.log("--- 75 dan yuqori baho olganlar ---");
+console.table(bst.findAbove(75));
 
-console.table: JavaScript-ning o‘rnatilgan funksiyasi yordamida ma’lumotlarni toza va tushunarli jadval shaklida vizuallashtiradi.
+// Delete holatini sinash
+bst.delete(98); // Bargi yo'q tugun
+console.log("98 o'chirildi. Yangi max:", bst.max());
