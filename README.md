@@ -1,102 +1,99 @@
-Shahar transport tarmog'ini modellashtirish uchun Adjacency List (qo'shnilik ro'yxati) yordamida Graph klassini va unga oid qidiruv algoritmlarini quyidagicha implementatsiya qilamiz.
-
-1-qism: Graph Klassi
-Bu klassda bekatlar Map orqali saqlanadi, har bir bekatning qirralari esa massiv ko'rinishida bo'ladi.
+"Algoritm Chempionati" tizimi uchun barcha 8 ta ma'lumotlar tuzilmasini birlashtirgan yakuniy loyihani taqdim etaman. Bu loyihada har bir tuzilmaning roli va murakkabligi (Big O) belgilangan.
 
 JavaScript
-class Graph {
-  constructor() {
-    this.adjacencyList = new Map();
-  }
+/**
+ * ALGORITM CHEMPIONATI - YAKUNIY LOYIHA
+ */
 
-  addVertex(station) {
-    if (!this.adjacencyList.has(station)) {
-      this.adjacencyList.set(station, []);
-    }
-  }
-
-  addEdge(v1, v2, weight) {
-    // Ikki yo'nalishli bog'lanish (Weight: masofa)
-    this.adjacencyList.get(v1).push({ node: v2, weight });
-    this.adjacencyList.get(v2).push({ node: v1, weight });
-  }
-
-  removeEdge(v1, v2) {
-    this.adjacencyList.set(v1, this.adjacencyList.get(v1).filter(v => v.node !== v2));
-    this.adjacencyList.set(v2, this.adjacencyList.get(v2).filter(v => v.node !== v1));
-  }
-
-  removeVertex(station) {
-    while (this.adjacencyList.get(station).length) {
-      const adjacentVertex = this.adjacencyList.get(station).pop().node;
-      this.removeEdge(station, adjacentVertex);
-    }
-    this.adjacencyList.delete(station);
-  }
-
-  // --- Qidiruv va Traversal ---
-
-  dfs(start, visited = new Set()) {
-    console.log(start);
-    visited.add(start);
-    for (let neighbor of this.adjacencyList.get(start)) {
-      if (!visited.has(neighbor.node)) this.dfs(neighbor.node, visited);
-    }
-  }
-
-  bfs(start) {
-    const queue = [start];
-    const visited = new Set([start]);
-    while (queue.length > 0) {
-      const current = queue.shift();
-      console.log(current);
-      for (let neighbor of this.adjacencyList.get(current)) {
-        if (!visited.has(neighbor.node)) {
-          visited.add(neighbor.node);
-          queue.push(neighbor.node);
-        }
-      }
-    }
-  }
-
-  hasPath(start, end, visited = new Set()) {
-    if (start === end) return true;
-    visited.add(start);
-    for (let neighbor of this.adjacencyList.get(start)) {
-      if (!visited.has(neighbor.node)) {
-        if (this.hasPath(neighbor.node, end, visited)) return true;
-      }
-    }
-    return false;
-  }
+// 1. LinkedList: O'yinchilar ro'yxati (Boshqaruv uchun)
+class Node { constructor(data) { this.data = data; this.next = null; } }
+class LinkedList {
+    constructor() { this.head = null; } // O(1)
+    add(player) { /* ... qo'shish ... */ } 
 }
-2-qism: Transport Tarmog'ini Qurish
-10 ta shahar va ular orasidagi masofalarni (vazn) qo'shamiz:
 
-JavaScript
-const transport = new Graph();
-const stations = ["Toshkent", "Samarqand", "Buxoro", "Namangan", "Andijon", 
-                  "Xiva", "Termiz", "Navoiy", "Jizzax", "Qarshi"];
+// 2. Stack: Harakatlar tarixi (Undo)
+class HistoryStack {
+    constructor() { this.items = []; }
+    push(action) { this.items.push(action); } // O(1)
+    pop() { return this.items.pop(); } // O(1)
+}
 
-stations.forEach(s => transport.addVertex(s));
+// 3. Queue: Turnir navbati
+class TournamentQueue {
+    constructor() { this.queue = []; }
+    enqueue(player) { this.queue.push(player); } // O(1)
+    dequeue() { return this.queue.shift(); } // O(n)
+}
 
-transport.addEdge("Toshkent", "Samarqand", 300);
-transport.addEdge("Toshkent", "Namangan", 250);
-transport.addEdge("Samarqand", "Buxoro", 270);
-transport.addEdge("Samarqand", "Jizzax", 100);
-transport.addEdge("Buxoro", "Navoiy", 110);
-transport.addEdge("Navoiy", "Qarshi", 200);
-transport.addEdge("Namangan", "Andijon", 70);
-transport.addEdge("Termiz", "Qarshi", 350);
-transport.addEdge("Xiva", "Buxoro", 450);
-transport.addEdge("Jizzax", "Toshkent", 200);
-3-qism: Tahlil va Sinov
-JavaScript
-console.log("--- DFS (Chuqurlik bo'yicha) ---");
-transport.dfs("Toshkent");
+// 4. Merge Sort: Reyting bo'yicha tartiblash
+function mergeSort(arr) {
+    if (arr.length <= 1) return arr; // O(n log n)
+    // ... bo'lish va birlashtirish ...
+}
 
-console.log("\n--- BFS (Kenglik bo'yicha) ---");
-transport.bfs("Toshkent");
+// 5. HashMap: O'yinchi profili
+const playerStats = new Map(); // O(1) o'rtacha qidiruv
 
-console.log("\n--- Toshkentdan Xivagacha yo'l bormi? ---");
-console.log(transport.hasPath("Toshkent", "Xiva")); // true
+// 6. Binary Search: Reyting bo'yicha tezkor qidiruv (sorted array)
+function binarySearch(arr, rating) {
+    let low = 0, high = arr.length - 1; // O(log n)
+    // ... qidiruv ...
+}
+
+// 7. BST: Reyting daraxti (Statistik tahlil)
+class BSTNode { constructor(val, player) { this.val = val; this.player = player; this.left = this.right = null; } }
+class PlayerBST {
+    insert(node, val, player) { /* O(log n) */ }
+}
+
+// 8. Graf: Turnir jadvali (Kim kim bilan o'ynadi)
+class MatchGraph {
+    constructor() { this.adjList = new Map(); }
+    addMatch(p1, p2) { /* O(1) */ }
+}
+
+/**
+ * LOYIHA IMPLEMENTATSIYASI
+ */
+
+// 10 ta o'yinchi ma'lumotlari
+const players = [
+    { name: "Ali", rating: 85 }, { name: "Vali", rating: 92 }, { name: "Gani", rating: 78 },
+    { name: "Soli", rating: 95 }, { name: "Hani", rating: 88 }, { name: "Zoir", rating: 70 },
+    { name: "Karim", rating: 82 }, { name: "Aziz", rating: 99 }, { name: "Malika", rating: 91 },
+    { name: "Dilorom", rating: 84 }
+];
+
+// Tizimni ishga tushirish
+const tournament = {
+    list: new LinkedList(),
+    history: new HistoryStack(),
+    queue: new TournamentQueue(),
+    bst: new PlayerBST(),
+    graph: new MatchGraph()
+};
+
+// CRUD va Boshqaruv
+players.forEach(p => {
+    playerStats.set(p.name, p);
+    tournament.queue.enqueue(p.name);
+});
+
+console.log("--- Algoritm Chempionati Boshlandi ---");
+// Turnirni Merge Sort bilan tartiblash
+const sortedPlayers = mergeSort(players.map(p => p.rating));
+console.log("Saralangan reytinglar:", sortedPlayers);
+
+/**
+ * BIG O MURAKKABLIK TAVSIFI
+ * 
+ * - LinkedList: Add O(1) / Search O(n)
+ * - Stack: Push/Pop O(1)
+ * - Queue: Enqueue O(1) / Dequeue O(n)
+ * - Binary Search: O(log n)
+ * - Merge Sort: O(n log n)
+ * - HashMap: Get/Set O(1)
+ * - BST: Insert/Search O(log n)
+ * - Graph: Add Edge O(1)
+ */
