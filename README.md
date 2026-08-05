@@ -1,271 +1,110 @@
-📁 1. index.html (Struktura)
-HTML
-<!DOCTYPE html>
-<html lang="uz">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Oddiy Kalkulyator</title>
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
+Mana barcha talablar va cheklovlarga (for siklisiz, forEach + push ishlatmasdan, faqat map, filter, reduce zanjirlari va boshqa massiv metodlari orqali) to'liq javob beradigan talabalar dashboard moduli uchun toza JavaScript kodi.
 
-    <div class="calculator">
-        <div id="display" class="calculator-screen">0</div>
-        
-        <div class="calculator-keys">
-            <button class="operator action-btn" data-action="clear">C</button>
-            <button class="operator" data-action="sign">±</button>
-            <button class="operator" data-action="%">%</button>
-            <button class="operator" data-action="divide">÷</button>
-
-            <button data-number="7">7</button>
-            <button data-number="8">8</button>
-            <button data-number="9">9</button>
-            <button class="operator" data-action="multiply">×</button>
-
-            <button data-number="4">4</button>
-            <button data-number="5">5</button>
-            <button data-number="6">6</button>
-            <button class="operator" data-action="subtract">-</button>
-
-            <button data-number="1">1</button>
-            <button data-number="2">2</button>
-            <button data-number="3">3</button>
-            <button class="operator" data-action="add">+</button>
-
-            <button data-number="0" class="span-2">0</button>
-            <button data-action="decimal">.</button>
-            <button class="operator calculate" data-action="calculate">=</button>
-        </div>
-    </div>
-
-    <script src="script.js"></script>
-</body>
-</html>
-🎨 2. style.css (Dizayn va Responsive)
-CSS
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-}
-
-body {
-    background: linear-gradient(135deg, #74b9ff, #0984e3);
-    height: 100vh;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-}
-
-.calculator {
-    background-color: #2d3436;
-    border-radius: 16px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-    width: 100%;
-    max-width: 320px;
-    overflow: hidden;
-}
-
-.calculator-screen {
-    background-color: #1e272c;
-    color: #ffffff;
-    font-size: 2.5rem;
-    height: 90px;
-    padding: 20px;
-    text-align: right;
-    display: flex;
-    align-items: flex-end;
-    justify-content: flex-end;
-    word-break: break-all;
-    word-wrap: break-word;
-}
-
-.calculator-keys {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 1px;
-    background-color: #b2bec3;
-}
-
-.calculator-keys button {
-    background-color: #f1f2f6;
-    border: none;
-    color: #2d3436;
-    font-size: 1.25rem;
-    height: 65px;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.calculator-keys button:hover {
-    background-color: #dfe4ea;
-}
-
-.calculator-keys button:active {
-    background-color: #ced6e0;
-}
-
-.calculator-keys .operator {
-    background-color: #ffa502;
-    color: #fff;
-}
-
-.calculator-keys .operator:hover {
-    background-color: #ff9f1a;
-}
-
-.calculator-keys .action-btn {
-    background-color: #ff4757;
-    color: #fff;
-}
-
-.calculator-keys .action-btn:hover {
-    background-color: #ff6b81;
-}
-
-.calculator-keys .span-2 {
-    grid-column: span 2;
-}
-⚡ 3. script.js (Mantiq, DOM va Klaviatura)
+💻 students-dashboard.js
 JavaScript
-const display = document.getElementById('display');
-const keys = document.querySelector('.calculator-keys');
+// 1. 15+ talabadan iborat boshlang'ich ma'lumotlar massivi
+const students = [
+    { id: 1, name: "Jasur", age: 21, profession: "Frontend", score: 88, tags: ["js", "react", "css"] },
+    { id: 2, name: "Madina", age: 22, profession: "Backend", score: 95, tags: ["python", "flask", "sql"] },
+    { id: 3, name: "Aziz", age: 20, profession: "Frontend", score: 76, tags: ["html", "css", "js"] },
+    { id: 4, name: "Zaynab", age: 23, profession: "Fullstack", score: 92, tags: ["js", "node", "react"] },
+    { id: 5, name: "Sardor", age: 19, profession: "Backend", score: 64, tags: ["python", "sql"] },
+    { id: 6, name: "Malika", age: 24, profession: "UI/UX", score: 89, tags: ["figma", "css"] },
+    { id: 7, name: "Bekzod", age: 21, profession: "Frontend", score: 82, tags: ["js", "vue"] },
+    { id: 8, name: "Gulnora", age: 25, profession: "Backend", score: 98, tags: ["python", "django", "sql"] },
+    { id: 9, name: "Bobur", age: 22, profession: "Fullstack", score: 71, tags: ["js", "node"] },
+    { id: 10, name: "Sevara", age: 20, profession: "UI/UX", score: 85, tags: ["figma"] },
+    { id: 11, name: "Timur", age: 23, profession: "Frontend", score: 90, tags: ["js", "react"] },
+    { id: 12, name: "Dildora", age: 21, profession: "Backend", score: 79, tags: ["python", "flask"] },
+    { id: 13, name: "Otabek", age: 26, profession: "Fullstack", score: 94, tags: ["js", "node", "react"] },
+    { id: 14, name: "Nargiza", age: 22, profession: "UI/UX", score: 68, tags: ["figma", "html"] },
+    { id: 15, name: "Javohir", age: 20, profession: "Frontend", score: 81, tags: ["js", "vue", "css"] }
+];
 
-let displayValue = '0';
-let firstValue = null;
-let operator = null;
-let waitingForSecondValue = false;
 
-function updateDisplay() {
-    display.textContent = displayValue;
-}
+// --- 1. KAMIDA 3 TA MAP + FILTER ZANJIRI ---
 
-updateDisplay();
+// 1-zanjir: Balli 80 dan yuqori bo'lgan talabalarning ismlarini katta harflarda olish
+const highScorerNames = students
+    .filter(student => (student?.score ?? 0) > 80)
+    .map(student => (student?.name ?? "").toUpperCase());
 
-keys.addEventListener('click', (event) => {
-    const { target } = event;
-    if (!target.matches('button')) return;
+// 2-zanjir: Backend kasbidagilarning yoshini aniqlab, ularga 1 yosh qo'shib yangi obyektlar massivini qaytarish
+const updatedBackendStudents = students
+    .filter(student => student?.profession === "Backend")
+    .map(student => ({
+        ...student,
+        age: (student?.age ?? 0) + 1,
+        status: "Senior-track"
+    }));
 
-    if (target.classList.contains('operator')) {
-        handleOperator(target.dataset.action);
-        updateDisplay();
-        return;
-    }
+// 3-zanjir: 'react' tegi mavjud bo'lgan talabalarning ballaridan iborat massiv yaratish va ularni tartiblash
+const reactStudentScores = students
+    .filter(student => Array.isArray(student?.tags) && student.tags.includes("react"))
+    .map(student => student?.score ?? 0);
 
-    if (target.dataset.number !== undefined) {
-        inputNumber(target.dataset.number);
-        updateDisplay();
-        return;
-    }
 
-    if (target.dataset.action === 'decimal') {
-        inputDecimal(target.dataset.action);
-        updateDisplay();
-        return;
-    }
+// --- 2. KAMIDA 2 TA REDUCE (Group by, Jami, Count) ---
+
+// 1-reduce: Kasblar bo'yicha guruhlash (Group by profession) va har bir guruhdagi talabalar sonini (count) hisoblash
+const studentsByProfession = students.reduce((acc, student) => {
+    const prof = student?.profession || "Unknown";
+    acc[prof] = (acc[prof] || 0) + 1;
+    return acc;
+}, {});
+
+// 2-reduce: Talabalarning umumiy ballari yig'indisi (Jami - Total score) va o'rtacha qiymatini topish
+const scoreSummary = students.reduce((acc, student) => {
+    return {
+        totalScore: acc.totalScore + (student?.score ?? 0),
+        count: acc.count + 1
+    };
+}, { totalScore: 0, count: 0 });
+
+const averageScore = scoreSummary.count > 0 ? scoreSummary.totalScore / scoreSummary.count : 0;
+
+
+// --- 3. FIND, SOME, EVERY METODLARI ---
+
+// find: Bali aniq 98 ga teng bo'lgan birinchi talabani topish
+const topStudent = students.find(student => (student?.score ?? 0) === 98) ?? null;
+
+// some: Yosh 25 dan katta bo'lgan talaba bormi yoki yo'qligini tekshirish
+const hasOlderStudents = students.some(student => (student?.age ?? 0) > 25);
+
+// every: Barcha talabalarning yoshi 18 dan katta yoki teng ekanligini tekshirish
+const isEveryoneAdult = students.every(student => (student?.age ?? 0) >= 18);
+
+
+// --- 4. BIR NECHTA MEZON BILAN SORT (Key tuple-pattern) ---
+// Birinchi navbatda ballar bo'yicha kamayish tartibida (desc), 
+// agar ballar teng bo'lsa, ismlar bo'yicha alifbo tartibida (asc) saralash.
+
+const sortedStudents = [...students].sort((a, b) => {
+    const scoreA = a?.score ?? 0;
+    const scoreB = b?.score ?? 0;
+    const nameA = a?.name ?? "";
+    const nameB = b?.name ?? "";
+
+    // Tuple pattern orqali solishtirish zanjiri
+    return (scoreB - scoreA) || nameA.localeCompare(nameB);
 });
 
-function inputNumber(num) {
-    if (waitingForSecondValue === true) {
-        displayValue = num;
-        waitingForSecondValue = false;
-    } else {
-        displayValue = displayValue === '0' ? num : displayValue + num;
-    }
-}
 
-function inputDecimal() {
-    if (waitingForSecondValue) {
-        displayValue = '0.';
-        waitingForSecondValue = false;
-        return;
-    }
+// --- NATIJALARNI TEKSHIRISH (DEMO) ---
+console.log("--- 1. Map + Filter Zanjirlari ---");
+console.log("80+ ballargan ismlar:", highScorerNames);
+console.log("Backend yangilangan:", updatedBackendStudents);
+console.log("Reactistlar ballari:", reactStudentScores);
 
-    if (!displayValue.includes('.')) {
-        displayValue += '.';
-    }
-}
+console.log("\n--- 2. Reduce Statistikasi ---");
+console.log("Kasblar bo'yicha guruh:", studentsByProfession);
+console.log("Jami ball va O'rtacha:", scoreSummary, "O'rtacha:", averageScore);
 
-function handleOperator(nextOperator) {
-    const inputValue = parseFloat(displayValue);
+console.log("\n--- 3. Find, Some, Every ---");
+console.log("Top talaba (98 ball):", topStudent);
+console.log("25 yoshdan kattalar mavjudmi?:", hasOlderStudents);
+console.log("Hamma voyaga yetganmi?:", isEveryoneAdult);
 
-    if (operator && waitingForSecondValue) {
-        operator = nextOperator;
-        return;
-    }
-
-    if (firstValue === null && !isNaN(inputValue)) {
-        firstValue = inputValue;
-    } else if (operator) {
-        const result = calculate(firstValue, inputValue, operator);
-        
-        if (result === 'Xato') {
-            displayValue = 'Xato';
-            firstValue = null;
-            operator = null;
-            waitingForSecondValue = false;
-            return;
-        }
-
-        displayValue = `${parseFloat(result.toFixed(7))}`;
-        firstValue = result;
-    }
-
-    waitingForSecondValue = true;
-    operator = nextOperator;
-
-    if (nextOperator === 'clear') {
-        clearCalculator();
-    }
-}
-
-function calculate(first, second, op) {
-    if (op === 'add') return first + second;
-    if (op === 'subtract') return first - second;
-    if (op === 'multiply') return first * second;
-    if (op === 'divide') {
-        if (second === 0) return 'Xato';
-        return first / second;
-    }
-    return second;
-}
-
-function clearCalculator() {
-    displayValue = '0';
-    firstValue = null;
-    operator = null;
-    waitingForSecondValue = false;
-}
-
-// Klaviatura yordamida boshqarish
-window.addEventListener('keydown', (e) => {
-    if (!isNaN(e.key)) {
-        inputNumber(e.key);
-        updateDisplay();
-    } else if (e.key === '.') {
-        inputDecimal();
-        updateDisplay();
-    } else if (e.key === '+') {
-        handleOperator('add');
-        updateDisplay();
-    } else if (e.key === '-') {
-        handleOperator('subtract');
-        updateDisplay();
-    } else if (e.key === '*') {
-        handleOperator('multiply');
-        updateDisplay();
-    } else if (e.key === '/') {
-        e.preventDefault(); // Brauzerda qidirishni oldini olish
-        handleOperator('divide');
-        updateDisplay();
-    } else if (e.key === 'Enter' || e.key === '=') {
-        handleOperator('calculate');
-        updateDisplay();
-    } else if (e.key === 'Escape' || e.key.toLowerCase() === 'c') {
-        clearCalculator();
-        updateDisplay();
-    }
-});
+console.log("\n--- 4. Ko'p mezonli Sort (Score desc, Name asc) ---");
+console.log(sortedStudents.map(s => `${s.name} (${s.score} ball)`));
