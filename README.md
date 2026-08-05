@@ -1,58 +1,49 @@
-// ── 1. Mantiqiy operatorlar ─────────────────────────────────────────────
+// 1. O'zgaruvchilarni e'lon qilish
+let haftaningKuni = "Dushanba"; // "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"
+let imtihonBor = false;       // true yoki false
+let vazifaBajarildi = true;   // true yoki false
+let darslarQoldirilgan = false; // Dam olish kuni yoki darslar rasman qoldirilganligini tekshirish uchun
 
-let pul = true;
-let karta = false;
+let isDarsKuni = false;
+let isDamOlishKuni = false;
 
-// YOKI (||) — bittasi to'g'ri bo'lsa yetarli
-if (pul || karta) {
-    console.log("Xarid qilishingiz mumkin.");
-}
-
-// VA (&&) — ikkalasi ham true bo'lishi kerak
-let bilet = true;
-let pasport = true;
-if (bilet && pasport) {
-    console.log("Samolyotga chiqing.");
-}
-
-// EMAS (!) — shartni teskariga aylantiradi
-let yomgir = false;
-if (!yomgir) {
-    console.log("Ko'chaga chiqishimiz mumkin.");
-}
-
-// Qat'iy taqqoslash (===) qiymat + turni birga tekshiradi
-console.log("10" == 10);   // true  (== — turini o'zgartiradi)
-console.log("10" === 10);  // false (=== — turi ham muhim)
-
-
-// ── 2. Switch-case ─────────────────────────────────────────────────────
-
-let kunRaqami = 3;
-
-switch (kunRaqami) {
-    case 1:
-        console.log("Dushanba");
+// 2. 1-qism: Switch-case yordamida kun tartibini aniqlash
+switch (haftaningKuni) {
+    case "Dushanba":
+    case "Chorshanba":
+    case "Juma":
+        console.log("Bugun asosiy dars kunlari.");
+        isDarsKuni = true;
         break;
-    case 2:
-        console.log("Seshanba");
+        
+    case "Seshanba":
+    case "Payshanba":
+        console.log("Bugun amaliyot va laboratoriya kuni.");
+        isDarsKuni = true;
         break;
-    case 3:
-        console.log("Chorshanba");
+        
+    case "Shanba":
+    case "Yakshanba":
+        console.log("Dam olish kuni.");
+        isDamOlishKuni = true;
         break;
-    case 4:
-        console.log("Payshanba");
-        break;
-    case 5:
-        console.log("Juma");
-        break;
-    case 6:
-    case 7:
-        // Bir nechta case'ni birlashtirish — break yo'q, pastga "tushadi"
-        console.log("Dam olish kuni");
-        break;
+        
     default:
-        // Hech qaysi case mos kelmasa shu blok ishlaydi
-        console.log("Noto'g'ri kun raqami (1-7 bo'lishi kerak)");
+        console.log("Noto'g'ri kun kiritildi.");
+        break;
 }
-// Natija: "Chorshanba"
+
+// 3. 2-qism: Mantiqiy operatorlar (&&, ||) yordamida qo'shimcha shartlarni tekshirish
+if (isDarsKuni && imtihonBor) {
+    console.log("Darhol imtihon zaliga kiring!");
+} 
+else if (!imtihonBor && vazifaBajarildi && isDarsKuni) {
+    console.log("Siz darsga tayyorsiz, kirishingiz mumkin.");
+} 
+else if (isDarsKuni && !imtihonBor && !vazifaBajarildi) {
+    console.log("Vazifani bajarmaganingiz uchun darsga kiritilmaysiz!");
+} 
+
+if (isDamOlishKuni || darslarQoldirilgan) {
+    console.log("Miriqib dam oling!");
+}
