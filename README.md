@@ -1,8 +1,8 @@
-// O'zgaruvchilar (svetofor rangi va mashina tezligi)
-let svetoforRangi = "qizil"; // "qizil", "sariq", "yashil" yoki boshqa matn kiritib sinab ko'rishingiz mumkin
-let tezlik = 0;              // Mashina tezligi
+// 1. Svetofor rangi va mashina tezligi o'zgaruvchilari
+let svetoforRangi = "qizil"; // "qizil", "sariq", "yashil" yoki boshqa qiymat berib sinab ko'rishingiz mumkin
+let tezlik = 0;              // Mashina tezligi (km/soat)
 
-// Shartlarni tekshirish (If, Else If, Else)
+// 2. Shartlarni tekshirish (If, Else If, Else)
 if (svetoforRangi === "qizil") {
     if (tezlik === 0) {
         console.log("To'g'ri, to'xtab turibsiz.");
