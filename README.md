@@ -1,187 +1,167 @@
-💻 dictionary.py
-Python
-import json
-import os
+-- =====================================================================
+-- AMALIY TOPSHIRIQ: Filiallar bo'yicha bonus reytingi va tahliliy hisobot
+-- Texnologiya: PostgreSQL
+-- =====================================================================
 
-FILENAME = "sozlik.json"
+-- 1. Jadvalni yaratish
+DROP TABLE IF EXISTS employee_bonuses CASCADE;
 
+CREATE TABLE employee_bonuses (
+    id SERIAL PRIMARY KEY,
+    xodim VARCHAR(50) NOT NULL,
+    filial VARCHAR(50) NOT NULL,
+    oy DATE NOT NULL,
+    bonus NUMERIC(10, 2) NOT NULL
+);
 
-def load_dictionary():
-  """Ilova ochilganda JSON fayldan ma'lumotlarni yuklaydi.
+-- Ma'lumotlarni kiritish (3 ta filial, 9 ta xodim, 6 ta oy = 54 qator)
+-- Eslatma: 'Toshkent' filialida Alisher va Bekzod ning bonuslari AYNAN teng qilib kiritilgan.
+INSERT INTO employee_bonuses (xodim, filial, oy, bonus) VALUES
+-- Toshkent filiali
+('Alisher', 'Toshkent', '2026-01-01', 1200.00),
+('Bekzod', 'Toshkent', '2026-01-01', 1200.00),
+('Diyor', 'Toshkent', '2026-01-01', 1500.00),
+('Alisher', 'Toshkent', '2026-02-01', 1300.00),
+('Bekzod', 'Toshkent', '2026-02-01', 1300.00),
+('Diyor', 'Toshkent', '2026-02-01', 1400.00),
+('Alisher', 'Toshkent', '2026-03-01', 1100.00),
+('Bekzod', 'Toshkent', '2026-03-01', 1100.00),
+('Diyor', 'Toshkent', '2026-03-01', 1600.00),
+('Alisher', 'Toshkent', '2026-04-01', 1400.00),
+('Bekzod', 'Toshkent', '2026-04-01', 1400.00),
+('Diyor', 'Toshkent', '2026-04-01', 1550.00),
+('Alisher', 'Toshkent', '2026-05-01', 1250.00),
+('Bekzod', 'Toshkent', '2026-05-01', 1250.00),
+('Diyor', 'Toshkent', '2026-05-01', 1450.00),
+('Alisher', 'Toshkent', '2026-06-01', 1500.00),
+('Bekzod', 'Toshkent', '2026-06-01', 1500.00),
+('Diyor', 'Toshkent', '2026-06-01', 1700.00),
 
-  Fayl topilmasa yoki xatolik bo'lsa, boshlang'ich 20+ so'z bilan qaytaradi.
-  """
-  default_data = {
-      "apple": "olma",
-      "book": "kitob",
-      "computer": "kompyuter",
-      "dog": "it",
-      "elephant": "fil",
-      "flower": "gul",
-      "garden": "bog'",
-      "house": "uy",
-      "ice": "muz",
-      "juice": "sharbat",
-      "key": "kalit",
-      "lamp": "chiroq",
-      "mountain": "tog'",
-      "notebook": "daftar",
-      "orange": "apelsin",
-      "pencil": "qalam",
-      "queen": "qirolicha",
-      "river": "daryo",
-      "sun": "quyosh",
-      "tree": "dрахt",
-      "water": "suv",
-  }
+-- Samarqand filiali
+('Jasur', 'Samarqand', '2026-01-01', 1000.00),
+('Malika', 'Samarqand', '2026-01-01', 1100.00),
+('Nodira', 'Samarqand', '2026-01-01', 950.00),
+('Jasur', 'Samarqand', '2026-02-01', 1050.00),
+('Malika', 'Samarqand', '2026-02-01', 1150.00),
+('Nodira', 'Samarqand', '2026-02-01', 1000.00),
+('Jasur', 'Samarqand', '2026-03-01', 1200.00),
+('Malika', 'Samarqand', '2026-03-01', 1250.00),
+('Nodira', 'Samarqand', '2026-03-01', 1100.00),
+('Jasur', 'Samarqand', '2026-04-01', 1150.00),
+('Malika', 'Samarqand', '2026-04-01', 1200.00),
+('Nodira', 'Samarqand', '2026-04-01', 1050.00),
+('Jasur', 'Samarqand', '2026-05-01', 1300.00),
+('Malika', 'Samarqand', '2026-05-01', 1350.00),
+('Nodira', 'Samarqand', '2026-05-01', 1200.00),
+('Jasur', 'Samarqand', '2026-06-01', 1400.00),
+('Malika', 'Samarqand', '2026-06-01', 1450.00),
+('Nodira', 'Samarqand', '2026-06-01', 1300.00),
 
-  try:
-    if not os.path.exists(FILENAME):
-      # Fayl mavjud bo'lmasa, dastlabki 20+ so'z bilan yaratib qo'yamiz
-      save_dictionary(default_data)
-      return default_data
+-- Buxoro filiali
+('Oybek', 'Buxoro', '2026-01-01', 900.00),
+('Sarvar', 'Buxoro', '2026-01-01', 950.00),
+('Madina', 'Buxoro', '2026-01-01', 1050.00),
+('Oybek', 'Buxoro', '2026-02-01', 950.00),
+('Sarvar', 'Buxoro', '2026-02-01', 1000.00),
+('Madina', 'Buxoro', '2026-02-01', 1100.00),
+('Oybek', 'Buxoro', '2026-03-01', 1000.00),
+('Sarvar', 'Buxoro', '2026-03-01', 1050.00),
+('Madina', 'Buxoro', '2026-03-01', 1150.00),
+('Oybek', 'Buxoro', '2026-04-01', 1100.00),
+('Sarvar', 'Buxoro', '2026-04-01', 1150.00),
+('Madina', 'Buxoro', '2026-04-01', 1250.00),
+('Oybek', 'Buxoro', '2026-05-01', 1150.00),
+('Sarvar', 'Buxoro', '2026-05-01', 1200.00),
+('Madina', 'Buxoro', '2026-05-01', 1300.00),
+('Oybek', 'Buxoro', '2026-06-01', 1250.00),
+('Sarvar', 'Buxoro', '2026-06-01', 1300.00),
+('Madina', 'Buxoro', '2026-06-01', 1400.00);
 
-    with open(FILENAME, "r", encoding="utf-8") as file:
-      data = json.load(file)
-      # Agar fayl bo'sh bo'lsa, default ma'lumotni qaytaramiz
-      return data if data else default_data
+-- =====================================================================
+-- 2. TTAHLILIY HISOBOT VA WINDOW FUNKSIYALAR
+-- =====================================================================
 
-  except (json.JSONDecodeError, IOError) as e:
-    print(f"⚠️ Faylni o'qishda xatolik yuz berdi: {e}")
-    print("Standart lug'at ishlatiladi.")
-    return default_data
+/*
+  IZOHLAR VA TALABLAR BAJARILISHI:
 
+  - 3-talab (ROW_NUMBER, RANK, DENSE_RANK):
+    Toshkent filialida Alisher va Bekzodning bonuslari teng bo'lgani uchun:
+    * ROW_NUMBER() - ularga ketma-ket unikal raqam beradi (masalan, 1 va 2).
+    * RANK() - bir xil qiymatlarga bir xil o'rin berib, keyingi o'rinni o'tkazib yuboradi (1, 1, 3).
+    * DENSE_RANK() - bir xil qiymatlarga bir xil o'rin beradi, lekin keyingi o'rinni o'tkazib yubormaydi (1, 1, 2).
 
-def save_dictionary(dictionary):
-  """Lug'at ma'lumotlarini JSON faylga saqlaydi."""
-  try:
-    with open(FILENAME, "w", encoding="utf-8") as file:
-      json.dump(dictionary, file, ensure_ascii=False, indent=4)
-  except IOError as e:
-    print(f"❌ Faylga yozishda xatolik yuz berdi: {e}")
+  - 4-talab (ROW_NUMBER tie-breaker):
+    ORDER BY ichiga xodim nomi (`xodim`) kiritildi. Bu bir xil bonusli qatorlar tartibini deterministik qilish uchun zarur, aks holda bazaning ichki fizik joylashuviga tayanib qolinardi.
 
+  - 6-talab (Jamlanma bonus freymi):
+    `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` ochiq ko'rsatildi. Freymsiz variant (`RANGE` bo'yicha standart) takroriy qiymatlarda butun guruhni qo'shib yuborishi mumkin edi, `ROWS` esa aniq joriy qatorgacha bo'lgan qatorma-qator yig'indini kafolatlaydi.
 
-def add_word(dictionary):
-  """Yangi so'z va uning tarjimasini qo'shadi."""
-  print("\n--- Yangi so'z qo'shish ---")
-  eng = input("Inglizcha so'zni kiriting: ").strip().lower()
-  uz = input("O'zbekcha tarjimasini kiriting: ").strip().lower()
+  - 7-talab (Filialdagi ulush):
+    `SUM(bonus) OVER (PARTITION BY filial)` yordamida `ORDER BY` siz hisoblandi.
 
-  if not eng or not uz:
-    print("❌ Maydonlar bo'sh bo'lishi mumkin emas!")
-    return
+  - 8-talab (TOP-3 va CTE):
+    Window funksiyalar `WHERE` shartida ishlatilmadi, chunki SQL mantiqiy bajarilish tartibida `WHERE` bosqichi window funksiyalardan oldin bajariladi. Shuning uchun natija alohida CTE orqali orab olindi.
 
-  if eng in dictionary:
-    print(
-        f"⚠️ '{eng}' so'zi allaqachon mavjud. Tarjimasi: {dictionary[eng]}"
-    )
-    update = (
-        input("Tarjimasini yangilashni xohlaysizmi? (ha/yo'q): ")
-        .strip()
-        .lower()
-    )
-    if update != "ha":
-      return
+  - 9-talab (WINDOW bandi):
+    Takrorlanuvchi `OVER` ifodalari `WINDOW` bandi orqali optimallashtirildi.
+*/
 
-  dictionary[eng] = uz
-  save_dictionary(dictionary)
-  print(f"✅ '{eng} -> {uz}' muvaffaqiyatli saqlandi!")
+WITH ranked_report AS (
+    SELECT
+        xodim,
+        filial,
+        oy,
+        bonus,
+        -- 3-talab: Reyting funksiyalari yonma-yon
+        ROW_NUMBER() OVER w_filial_order AS rn,
+        RANK() OVER w_filial_order AS rnk,
+        DENSE_RANK() OVER w_filial_order AS dense_rnk,
 
+        -- 5-talab: LAG bilan oydan oyga foiz o'zgarish (NULLIF bilan nolga bo'linishdan himoya)
+        LAG(bonus) OVER w_employee_time AS prev_bonus,
+        ROUND(
+            ((bonus - LAG(bonus) OVER w_employee_time) * 100.0) /
+            NULLIF(LAG(bonus) OVER w_employee_time, 0), 2
+        ) AS oy_ozgarish_foiz,
 
-def search_word(dictionary):
-  """So'zni ham kalit (inglizcha), ham qiymat (o'zbekcha) bo'yicha qidiradi."""
-  print("\n--- So'z qidirish ---")
-  query = input("Qidirilayotgan so'zni kiriting: ").strip().lower()
+        -- 6-talab: Jamlanma bonus (aniq freym bilan)
+        SUM(bonus) OVER (
+            PARTITION BY xodim
+            ORDER BY oy
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS jamlanma_bonus,
 
-  if not query:
-    print("❌ Qidiruv so'zi kiritilmadi!")
-    return
-
-  found = False
-
-  # 1. Inglizcha (kalit) bo'yicha qidirish
-  if query in dictionary:
-    print(f"🔍 Topildi (Inglizcha): {query} -> {dictionary[query]}")
-    found = True
-
-  # 2. O'zbekcha (qiymat) bo'yicha qidirish
-  for eng, uz in dictionary.items():
-    if query in uz:
-      print(f"🔍 Topildi (O'zbekcha): {eng} -> {uz}")
-      found = True
-
-  if not found:
-    print(f"❌ '{query}</i> bo'yicha hech qanday so'z topilmadi.")
-
-
-def delete_word(dictionary):
-  """Lug'atdan so'zni o'chiradi."""
-  print("\n--- So'zni o'chirish ---")
-  eng = (
-      input("O'chirmoqchi bo'lgan inglizcha so'zni kiriting: ")
-      .strip()
-      .lower()
-  )
-
-  if eng in dictionary:
-    del dictionary[eng]
-    save_dictionary(dictionary)
-    print(f"🗑️ '{eng}' so'zi muvaffaqiyatli o'chirildi!")
-  else:
-    print(f"❌ '{eng}' so'zi lug'atda topilmadi.")
-
-
-def show_statistics(dictionary):
-  """Lug'at statistikasi (jami so'zlar soni)."""
-  print("\n--- Statistikasi ---")
-  total_words = len(dictionary)
-  print(f"📊 Lug'atdagi jami so'zlar soni: {total_words} ta")
-
-
-def display_all(dictionary):
-  """Lug'atdagi barcha so'zlarni ekranga chiqaradi."""
-  print("\n--- Barcha so'zlar ro'yxati ---")
-  if not dictionary:
-    print("Lug'at bo'sh.")
-    return
-
-  for i, (eng, uz) in enumerate(dictionary.items(), 1):
-    print(f"{i}. {eng} — {uz}")
-
-
-def main():
-  # Ilova ochilganda fayldan yuklash
-  dictionary = load_dictionary()
-
-  while True:
-    print("\n==============================")
-    print("  📚 INGLIZ-O'ZBEK LUG'ATI")
-    print("==============================")
-    print("1. So'z qo'shish")
-    print("2. So'z qidirish (Inglizcha/O'zbekcha)")
-    print("3. So'zni o'chirish")
-    print("4. Barcha so'zlarni ko'rish")
-    print("5. Statistika")
-    print("6. Chiqish")
-
-    choice = input("Tanlovingizni kiriting (1-6): ").strip()
-
-    if choice == "1":
-      add_word(dictionary)
-    elif choice == "2":
-      search_word(dictionary)
-    elif choice == "3":
-      delete_word(dictionary)
-    elif choice == "4":
-      display_all(dictionary)
-    elif choice == "5":
-      show_statistics(dictionary)
-    elif choice == "6":
-      print("Dasturdan chiqildi. Xayr!")
-      break
-    else:
-      print("❌ Noto'g'ri tanlov! Iltimos, 1 dan 6 gacha raqam kiriting.")
-
-
-if __name__ == "__main__":
-  main()
+        -- 7-talab: Filial bonus fondidagi ulush (ORDER BY siz)
+        ROUND(
+            (bonus * 100.0) / SUM(bonus) OVER (PARTITION BY filial), 2
+        ) AS filial_ulushi_foiz
+    FROM employee_bonuses
+    WINDOW
+        w_filial_order AS (PARTITION BY filial, oy ORDER BY bonus DESC, xodim ASC),
+        w_employee_time AS (PARTITION BY xodim ORDER BY oy)
+),
+top3_branches AS (
+    SELECT
+        xodim,
+        filial,
+        oy,
+        bonus,
+        rnk,
+        ROW_NUMBER() OVER (PARTITION BY filial, oy ORDER BY rnk, bonus DESC) as top_rn
+    FROM ranked_report
+)
+SELECT
+    xodim,
+    filial,
+    oy,
+    bonus,
+    rn,
+    rnk,
+    dense_rnk,
+    prev_bonus,
+    oy_ozgarish_foiz,
+    jamlanma_bonus,
+    filial_ulushi_foiz
+FROM top3_branches
+WHERE top_rn <= 3
+ORDER BY filial, oy, rnk, xodim;
