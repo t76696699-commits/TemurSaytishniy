@@ -1,191 +1,168 @@
 -- =====================================================================
--- AMALIY TOPSHIRIQ: Mijozlar va buyurtmalar tahlili, subquery, JOIN va EXPLAIN
--- Texnologiya: PostgreSQL
+-- AMALIY LOYIHA: Sotuvchilar samaradorligi hisoboti
+-- Texnologiya: PostgreSQL, Window Functions, CTE, generate_series
 -- =====================================================================
 
--- 0. Eski jadvallarni tozalash
-DROP TABLE IF EXISTS buyurtmalar CASCADE;
-DROP TABLE IF EXISTS mijozlar CASCADE;
+-- 0. Eski jadvallarni tozalash (agar mavjud bo'lsa)
+DROP TABLE IF EXISTS sotuv_qatorlari CASCADE;
+DROP TABLE IF EXISTS sotuvlar CASCADE;
+DROP TABLE IF EXISTS mahsulotlar CASCADE;
+DROP TABLE IF EXISTS sotuvchilar CASCADE;
 
--- 1. Sxemani yaratish
-CREATE TABLE mijozlar (
+-- =====================================================================
+-- 1. SXEMANI YARATISH
+-- =====================================================================
+
+-- Sotuvchilar jadvali
+CREATE TABLE sotuvchilar (
     id SERIAL PRIMARY KEY,
-    ism VARCHAR(100) NOT NULL
+    ism VARCHAR(100) NOT NULL,
+    hudud VARCHAR(50) NOT NULL
 );
 
-CREATE TABLE buyurtmalar (
+-- Mahsulotlar jadvali
+CREATE TABLE mahsulotlar (
     id SERIAL PRIMARY KEY,
-    mijoz_id INT REFERENCES mijozlar(id), -- (1-b) talab: NULL qiymatlarga ruxsat beriladi (mehmon buyurtmasi)
-    status VARCHAR(50) NOT NULL, -- 'yakunlangan', 'jarayonda', 'bekor_qilingan'
-    summa NUMERIC(10, 2) NOT NULL
+    nomi VARCHAR(100) NOT NULL,
+    narx NUMERIC(10, 2) NOT NULL
 );
 
--- Ma'lumotlarni kiritish (Talablarga muvofiq: 
--- (a) bitta mijozda 2 tadan ortiq yakunlangan buyurtma, 
--- (b) buyurtmalarda NULL mijoz_id, 
--- (c) hech qachon buyurtma bermagan mijoz mavjud)
-INSERT INTO mijozlar (id, ism) VALUES
-(1, 'Anvar Karimov'),
-(2, 'Malika Rahimova'),
-(3, 'Jasurbek Tursunov'), -- (1-c) talab: Hech qachon buyurtma bermagan mijoz
-(4, 'Zilola Umarova');
+-- Sotuvlar (cheklar) jadvali
+CREATE TABLE sotuvlar (
+    id SERIAL PRIMARY KEY,
+    sotuvchi_id INT REFERENCES sotuvchilar(id),
+    sana DATE NOT NULL
+);
 
-INSERT INTO buyurtmalar (mijoz_id, status, summa) VALUES
--- Anvar Karimov (id=1): 3 ta yakunlangan buyurtma ((1-a) talab bajarildi)
-(1, 'yakunlangan', 1500.00),
-(1, 'yakunlangan', 2300.00),
-(1, 'yakunlangan', 1200.00),
--- Malika Rahimova (id=2): Aralash statuslar
-(2, 'yakunlangan', 800.00),
-(2, 'jarayonda', 400.00),
--- Mehmon buyurtmasi (mijoz_id NULL) -> (1-b) talab bajarildi
-(NULL, 'yakunlangan', 5000.00),
-(NULL, 'jarayonda', 300.00);
+-- Sotuv qatorlari (chek tarkibi)
+CREATE TABLE sotuv_qatorlari (
+    id SERIAL PRIMARY KEY,
+    sotuv_id INT REFERENCES sotuvlar(id),
+    mahsulot_id INT REFERENCES mahsulotlar(id),
+    miqdor INT NOT NULL
+);
+
+-- =====================================================================
+-- 2. TEST MA'LUMOTLARINI GENERATSIYA QILISH (10 000+ qator)
+-- =====================================================================
+
+-- Sotuvchilarni kiritish (Har bir hududda bir nechta sotuvchi)
+INSERT INTO sotuvchilar (ism, hudud) VALUES
+('Anvar Karimov', 'Toshkent'),
+('Malika Rahimova', 'Toshkent'),
+('Jasur Tursunov', 'Samarqand'),
+('Zilola Umarova', 'Samarqand'),
+('Bekzod Bekov', 'Fargona'),
+('Nodira Sharipova', 'Fargona');
+
+-- Mahsulotlarni kiritish
+INSERT INTO mahsulotlar (nomi, narx) VALUES
+('Smartfon', 3500.00),
+('Noutbuk', 7500.00),
+('Quloqchin', 300.00),
+('Smart soat', 1200.00),
+('Planshet', 4000.00);
+
+-- Sotuvlar va sotuv qatorlarini generate_series orqali 10 000+ qator qilib yaratish
+-- 1. Sotuvlar jadvalini to'ldirish (~2500 ta chek)
+INSERT INTO sotuvlar (sotuvchi_id, sana)
+SELECT 
+    (1 + (i % 6)) AS sotuvchi_id,
+    ('2025-01-01'::DATE + (i % 365) * INTERVAL '1 day')::DATE AS sana
+FROM generate_series(1, 2500) AS i;
+
+-- 2. Sotuv qatorlari jadvalini to'ldirish (~12 500 ta qator)
+INSERT INTO sotuv_qatorlari (sotuv_id, mahsulot_id, miqdor)
+SELECT 
+    (1 + (i % 2500)) AS sotuv_id,
+    (1 + (i % 5)) AS mahsulot_id,
+    (1 + (i % 4)) AS miqdor
+FROM generate_series(1, 12500) AS i;
 
 
 -- =====================================================================
--- 2, 3-TALABLAR: (A) savoli uchun uch xil yozuv va JOIN muammolari
+-- 3-9. TAHLILIY HISOBOT VA WINDOW FUNKSIYALAR
 -- =====================================================================
-
--- 1-usul: IN-subquery
-SELECT id, ism 
-FROM mijozlar 
-WHERE id IN (
-    SELECT mijoz_id 
-    FROM buyurtmalar 
-    WHERE status = 'yakunlangan' AND mijoz_id IS NOT NULL
-);
-
--- 2-usul: EXISTS
-SELECT m.id, m.ism 
-FROM mijozlar m
-WHERE EXISTS (
-    SELECT 1 
-    FROM buyurtmalar b 
-    WHERE b.mijoz_id = m.id AND b.status = 'yakunlangan'
-);
-
--- 3-usul: JOIN (Izoh: Bu usul takroriy qatorlar beradi, chunki bitta mijozning 
--- bir nechta 'yakunlangan' buyurtmasi bo'lsa, mijoz nomi har bir buyurtma uchun takroran chiqadi).
-SELECT DISTINCT m.id, m.ism 
-FROM mijozlar m
-JOIN buyurtmalar b ON m.id = b.mijoz_id
-WHERE b.status = 'yakunlangan';
 
 /*
-  IZOH (3-talab): 
-  DISTINCT operatori takroriy qatorlarni shunchaki vizual ravishda yashiradi (olib tashlaydi), 
-  lekin u asl muammoni — ortiqcha birikish (join) va skanerlash jarayonini hal qilmaydi. 
-  Produksiyada katta jadvallar uchun DISTINCT ishlash tezligini sekinlashtiradi. 
-  Shuning uchun bu holatda EXISTS yoki IN afzalroq.
+  IZOH (8-talab): 
+  Skript quyidagi ikki bosqichli CTE tuzilmasiga ega:
+  1. `monthly_sales` (Tayyorlash bosqichi): Xom ma'lumotlarni oylik kesimda guruhlab, 
+     har bir sotuvchining oylik tushumini hisoblaydi.
+  2. `enriched_report` (Boyitish bosqichi): Window funksiyalar yordamida oylik o'zgarish (MoM), 
+     jamlanma tushum, hududdagi o'rin va ulushlarni hisoblaydi.
 */
 
-
--- =====================================================================
--- 4, 5-TALABLAR: (B) savoli – Hech qachon buyurtma bermaganlar va NOT IN xatosi
--- =====================================================================
-
--- 4-talab: Xato ishlaydigan NOT IN varianti (Bo'sh natija qaytaradi)
--- SABAB (Uch qiymatli mantiq - Three-valued logic): 
--- Ichki so'rov `NULL` qiymatni qaytarganda, SQL dagi shart `id NOT IN (1, 2, NULL)` ko'rinishiga keladi.
--- Bu `NOT (id = 1 OR id = 2 OR id = NULL)` deganidir. SQL da `id = NULL` natijasi `UNKNOWN` (noma'lum) 
--- beradi, `NOT (TRUE OR UNKNOWN)` esa `FALSE` ga tenglashadi. Natijada hech qanday qator topilmaydi!
-SELECT * FROM mijozlar 
-WHERE id NOT IN (SELECT mijoz_id FROM buyurtmalar); -- Bo'sh natija qaytaradi!
-
-
--- 5-talab: B savolining ikkita TO'G'RI varianti
-
--- Variant 1: NOT EXISTS
-SELECT * FROM mijozlar m
-WHERE NOT EXISTS (
-    SELECT 1 FROM buyurtmalar b WHERE b.mijoz_id = m.id
-);
-
--- Variant 2: LEFT JOIN ... IS NULL (Anti-join)
-SELECT m.* FROM mijozlar m
-LEFT JOIN buyurtmalar b ON m.id = b.mijoz_id
-WHERE b.id IS NULL;
-
-
--- =====================================================================
--- 6, 7-TALABLAR: Ko'rsatkichlarni hisoblash va EXPLAIN ANALYZE taqqosi
--- =====================================================================
-
--- 1-usul: Korrelyatsiyali subquery orqali
+WITH monthly_sales AS (
+    -- 1-bosqich: Tayyorlash - har bir sotuvchi uchun oylik tushumni hisoblash
+    SELECT 
+        s.id AS sotuvchi_id,
+        s.ism,
+        s.hudud,
+        DATE_TRUNC('month', sv.sana)::DATE AS oy,
+        SUM(sq.miqdor * m.narx) AS oylik_tushum
+    FROM sotuvchilar s
+    JOIN sotuvlar sv ON s.id = sv.sotuvchi_id
+    JOIN sotuv_qatorlari sq ON sv.id = sq.sotuv_id
+    JOIN mahsulotlar m ON sq.mahsulot_id = m.id
+    GROUP BY s.id, s.ism, s.hudud, DATE_TRUNC('month', sv.sana)
+),
+enriched_report AS (
+    -- 2-bosqich: Boyitish - Window funksiyalarni qo'llash
+    SELECT 
+        sotuvchi_id,
+        ism,
+        hudud,
+        oy,
+        oylik_tushum,
+        
+        -- 3-talab: LAG va MoM foiz o'zgarish (NULLIF bilan nolga bo'linishdan himoya)
+        LAG(oylik_tushum) OVER w_sotuvchi_vaqt AS otgan_oy_tushumi,
+        ROUND(
+            ((oylik_tushum - LAG(oylik_tushum) OVER w_sotuvchi_vaqt) * 100.0) / 
+            NULLIF(LAG(oylik_tushum) OVER w_sotuvchi_vaqt, 0), 2
+        ) AS mom_foiz_ozgarish,
+        
+        -- 4-talab: Jamlanma tushum (ROWS freymi OSHKORA yozildi)
+        SUM(oylik_tushum) OVER (
+            PARTITION BY sotuvchi_id 
+            ORDER BY oy 
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ) AS yil_boshidan_jamlanma,
+        
+        -- 5-talab: Hudud tushumidagi ulush (ORDER BY SIZ hisoblandi)
+        ROUND(
+            (oylik_tushum * 100.0) / SUM(oylik_tushum) OVER (PARTITION BY hudud, oy), 2
+        ) AS hudud_tushum_ulushi,
+        
+        -- 6-talab: RANK va tie-breaker bilan ROW_NUMBER orqali hududdagi o'rin
+        RANK() OVER w_hudud_oy AS hudud_rank,
+        ROW_NUMBER() OVER (PARTITION BY hudud, oy ORDER BY oylik_tushum DESC, sotuvchi_id ASC) AS hudud_row_num
+    FROM monthly_sales
+    WINDOW 
+        w_sotuvchi_vaqt AS (PARTITION BY sotuvchi_id ORDER BY oy),
+        w_hudud_oy AS (PARTITION BY hudud, oy ORDER BY oylik_tushum DESC)
+),
+top2_filtered AS (
+    -- 7-talab: Top-2 sotuvchilarni alohida CTE orqali tanlash (WHERE da window funksiya ishlatilmadi)
+    -- Izoh: Window funksiyalar SQL ning WHERE qismida ishlamaydi, chunki ular mantiqiy bajarilish
+    -- tartibida WHERE dan keyin (SELECT bosqichida) hisoblanadi. Shuning uchun CTE ishlatiladi.
+    SELECT 
+        *,
+        ROW_NUMBER() OVER (PARTITION BY hudud, oy ORDER BY hudud_rank ASC, oylik_tushum DESC) as top_filter
+    FROM enriched_report
+)
+-- Yakuniy natija: Barcha ustunlarni chiqarish va har bir hududdan eng yaxshi 2 taligni saralash
 SELECT 
-    m.ism,
-    (SELECT COUNT(*) FROM buyurtmalar b WHERE b.mijoz_id = m.id) AS buyurtmalar_soni,
-    (SELECT COALESCE(SUM(summa), 0) FROM buyurtmalar b WHERE b.mijoz_id = m.id) AS jami_summa,
-    (SELECT COUNT(*) FROM buyurtmalar b WHERE b.mijoz_id = m.id AND b.status = 'yakunlangan') AS yakunlanganlar_soni
-FROM mijozlar m;
-
--- 2-usul: Bitta LEFT JOIN + GROUP BY + FILTER orqali
-SELECT 
-    m.ism,
-    COUNT(b.id) AS buyurtmalar_soni,
-    COALESCE(SUM(b.summa), 0) AS jami_summa,
-    COUNT(b.id) FILTER (WHERE b.status = 'yakunlangan') AS yakunlanganlar_soni
-FROM mijozlar m
-LEFT JOIN buyurtmalar b ON m.id = b.mijoz_id
-GROUP BY m.id, m.ism;
-
--- 7-talab uchun EXPLAIN ANALYZE tahlili:
--- Korrelyatsiyali subquery yondashuvi har bir mijoz uchun alohida ichki so'rovni takroran 
--- ishga tushiradi (Nested Loop / Sequential Scan ko'p marta bajariladi).
-EXPLAIN ANALYZE
-SELECT 
-    m.ism,
-    (SELECT COUNT(*) FROM buyurtmalar b WHERE b.mijoz_id = m.id) AS b_soni
-FROM mijozlar m;
-
--- LEFT JOIN + GROUP BY yondashuvi esa jadvallarni bir marta birlashtirib, 
--- bitta skanerlash (Sequential Scan) va guruhlash orqali natija beradi, 
--- bu esa katta jadvallarda ancha samarali ishlaydi.
-EXPLAIN ANALYZE
-SELECT 
-    m.ism,
-    COUNT(b.id) AS b_soni
-FROM mijozlar m
-LEFT JOIN buyurtmalar b ON m.id = b.mijoz_id
-GROUP BY m.id, m.ism;
-
-
--- =====================================================================
--- 8-TALAB: EXISTS va IN variantlarining EXPLAIN (COSTS OFF) rejalari solishtiruvi
--- =====================================================================
-EXPLAIN (COSTS OFF)
-SELECT * FROM mijozlar m WHERE id IN (SELECT mijoz_id FROM buyurtmalar WHERE status = 'yakunlangan');
-
-EXPLAIN (COSTS OFF)
-SELECT * FROM mijozlar m WHERE EXISTS (SELECT 1 FROM buyurtmalar b WHERE b.mijoz_id = m.id AND b.status = 'yakunlangan');
-
-/*
-  XULOSA (8-talab): 
-  Kichik jadvallarda `IN` va `EXISTS` rejalari bir xil ko'rinishi mumkin, biroq indekslangan 
-  va katta jadvallarda `EXISTS` qidirilayotgan shart topilishi bilan qidiruvni to'xtatgani (short-circuit) 
-  uchun ko'pincha `Semi Join` rejasida tezroq ishlaydi. `IN` esa ba'zi eski PostgreSQL versiyalarida 
-  ichki ro'yxatni to'liq shakllantirib olgach ishlar edi.
-*/
-
-
--- =====================================================================
--- 9-TALAB: Qaysi vazifaga qaysi vosita va nega (Jadval-izoh)
--- =====================================================================
-/*
-+-----------------------------------+--------------------------------+-------------------------------------------------------------+
-| Vazifa turi                       | Tavsiya etiladigan vosita      | Nega aynan bu vosita?                                       |
-+-----------------------------------+--------------------------------+-------------------------------------------------------------+
-| Mavjudlikni tekshirish (A savoli) | EXISTS                         | Shart bajarilishi bilan qidiruvni to'xtatadi, tezkor ishlaydi.|
-| Yo'qligini tekshirish (B savoli)  | NOT EXISTS / LEFT JOIN...IS NULL| Uch qiymatli mantiqiy xatolardan (NULL) qochishni ta'minlaydi.|
-| Agregatsiya va statistika olish   | LEFT JOIN + GROUP BY + FILTER  | Ma'lumotlarni bir martalik skanerlash va guruhlash orqali     |
-|                                   |                                | samarali hisob-kitob qiladi.                                |
-| Murakkab bosqichma-bosqich tahlil | CTE (WITH)                     | Kodni o'qishni osonlashtiradi va qismlarga ajratib tahlil     |
-|                                   |                                | qilishga imkon beradi.                                      |
-+-----------------------------------+--------------------------------+-------------------------------------------------------------+
-*/
-
-
--- =====================================================================
--- 10-TALAB: Skript xatosiz bajarilib yakunlandi.
--- =====================================================================
+    ism,
+    hudud,
+    oy,
+    ROUND(oylik_tushum, 2) AS oylik_tushum,
+    otgan_oy_tushumi,
+    mom_foiz_ozgarish,
+    yil_boshidan_jamlanma,
+    hudud_tushum_ulushi,
+    hudud_rank
+FROM top2_filtered
+WHERE top_filter <= 2
+ORDER BY oy DESC, hudud, hudud_rank;
