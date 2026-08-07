@@ -1,272 +1,358 @@
--- ═══════════════════════════════════════════════════════════════════════
--- E-commerce sxemasi v2 — Asoslari kursidagi capstone sxemasini
--- ushbu kursdagi hamma narsani qo'llab qayta loyihalash
--- ═══════════════════════════════════════════════════════════════════════
+1. 📊 Mermaid ER Diagramma
+Фрагмент кода
+erDiagram
+    users ||--o{ profiles : "1:1"
+    users ||--o{ properties : "1:N (host)"
+    users ||--o{ bookings : "1:N (guest)"
+    properties ||--o{ property_amenities : "1:N"
+    amenities ||--o{ property_amenities : "1:N"
+    properties ||--o{ bookings : "1:N"
+    bookings ||--o{ payments : "1:N"
+    bookings ||--o{ reviews : "1:N"
+    reviews ||--o{ reviews : "self-referential (reply)"
 
-DROP TABLE IF EXISTS zaxira_harakatlari;
-DROP TABLE IF EXISTS tolovlar;
-DROP TABLE IF EXISTS buyurtma_elementlari;
-DROP TABLE IF EXISTS buyurtmalar;
-DROP TABLE IF EXISTS manzillar;
-DROP TABLE IF EXISTS mahsulotlar;
-DROP TABLE IF EXISTS kategoriyalar;
-DROP TABLE IF EXISTS mijozlar;
-DROP TABLE IF EXISTS shaharlar;
+    users {
+        int user_id PK
+        varchar email
+        varchar password_hash
+        timestamptz created_at
+    }
 
--- ── TUZATISH 2: shahar erkin matn emas, lug'at jadval (3NF) ───────────
-CREATE TABLE shaharlar (
-    id       INTEGER     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    nomi     VARCHAR(60) NOT NULL,
-    viloyati VARCHAR(60) NOT NULL,
-    CONSTRAINT shaharlar_nomi_viloyat_uq UNIQUE (nomi, viloyati)
+    profiles {
+        int profile_id PK
+        int user_id FK
+        varchar first_name
+        varchar last_name
+        varchar phone
+        varchar role
+    }
+
+    properties {
+        int property_id PK
+        int host_id FK
+        varchar title
+        text description
+        varchar city
+        varchar address
+        numeric base_price
+        timestamptz created_at
+    }
+
+    amenities {
+        int amenity_id PK
+        varchar name
+    }
+
+    property_amenities {
+        int property_id PK, FK
+        int amenity_id PK, FK
+    }
+
+    bookings {
+        int booking_id PK
+        int property_id FK
+        int guest_id FK
+        daterange date_range
+        varchar status
+        numeric total_price
+        timestamptz created_at
+    }
+
+    payments {
+        int payment_id PK
+        int booking_id FK
+        numeric amount
+        varchar status
+        timestamptz paid_at
+    }
+
+    reviews {
+        int review_id PK
+        int booking_id FK
+        int property_id FK
+        int guest_id FK
+        int rating
+        text comment
+        int parent_review_id FK
+        timestamptz created_at
+    }
+2. 🛠️ PostgreSQL Skripti (schema.sql)
+SQL
+-- Extensions
+CREATE EXTENSION IF NOT EXISTS btree_gist;
+
+-- 1. Users jadvali
+CREATE TABLE users (
+    user_id SERIAL PRIMARY KEY,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE mijozlar (
-    id              INTEGER      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    -- TUZATISH: ism uchun yetarli uzunlik
-    ism             VARCHAR(120) NOT NULL,
-    email           VARCHAR(160) NOT NULL,
-    shahar_id       INTEGER      REFERENCES shaharlar(id) ON DELETE SET NULL,
-    royxatdan       TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    -- TUZATISH: soft delete — mijozni o'chirmasdan "yo'q" qilish
-    ochirilgan_sana TIMESTAMPTZ,
-    CONSTRAINT mijozlar_email_uq  UNIQUE (email),
-    CONSTRAINT mijozlar_email_fmt CHECK (email LIKE '%_@_%._%')
+-- 2. Profiles jadvali (1:1 users bilan)
+CREATE TABLE profiles (
+    profile_id SERIAL PRIMARY KEY,
+    user_id INT UNIQUE NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    phone VARCHAR(30),
+    role VARCHAR(20) NOT NULL,
+    CONSTRAINT chk_profile_role CHECK (role IN ('guest', 'host', 'admin')),
+    CONSTRAINT fk_profile_user FOREIGN KEY (user_id) 
+        REFERENCES users(user_id) 
+        ON DELETE CASCADE -- Foydalanuvchi o'chsa profili ham o'chadi
 );
 
--- ── TUZATISH: kategoriya ierarxiyasi (self-referential 1:N) ───────────
-CREATE TABLE kategoriyalar (
-    id     INTEGER     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    ota_id INTEGER     REFERENCES kategoriyalar(id) ON DELETE RESTRICT,
-    nomi   VARCHAR(60) NOT NULL,
-    CONSTRAINT kategoriyalar_nomi_uq UNIQUE (nomi),
-    -- o'zi o'zining otasi bo'lolmaydi
-    CONSTRAINT kategoriyalar_ota_ozi_emas CHECK (ota_id IS NULL OR ota_id <> id)
+-- 3. Properties jadvali (Obyektlar)
+CREATE TABLE properties (
+    property_id SERIAL PRIMARY KEY,
+    host_id INT NOT NULL,
+    title VARCHAR(250) NOT NULL,
+    description TEXT,
+    city VARCHAR(100) NOT NULL,
+    address TEXT NOT NULL,
+    base_price NUMERIC(14,2) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_base_price CHECK (base_price > 0),
+    CONSTRAINT fk_property_host FOREIGN KEY (host_id) 
+        REFERENCES users(user_id) 
+        ON DELETE RESTRICT -- Obyekti bor hostni o'chirishni bloklaymiz
 );
 
-CREATE TABLE mahsulotlar (
-    id            INTEGER       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    kategoriya_id INTEGER       NOT NULL REFERENCES kategoriyalar(id) ON DELETE RESTRICT,
-    nomi          VARCHAR(150)  NOT NULL,
-    -- TUZATISH 4: NUMERIC(10,2) so'm uchun kichik -> NUMERIC(14,2)
-    narx          NUMERIC(14,2) NOT NULL CHECK (narx > 0),
-    -- TUZATISH 6: zaxira — zaxira_harakatlari ustidagi KESH.
-    -- Uni faqat trigger yangilaydi, ilova kodi emas.
-    zaxira        INTEGER       NOT NULL DEFAULT 0 CHECK (zaxira >= 0),
-    -- TUZATISH: katalogdan olib tashlash uchun soft delete
-    faol          BOOLEAN       NOT NULL DEFAULT TRUE,
-    yaratilgan    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    yangilangan   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+-- 4. Amenities jadvali (Qulayliklar)
+CREATE TABLE amenities (
+    amenity_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL
 );
 
--- ── TUZATISH 3: mijozning saqlangan manzillari (1:N) ──────────────────
-CREATE TABLE manzillar (
-    id          INTEGER      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    mijoz_id    INTEGER      NOT NULL REFERENCES mijozlar(id) ON DELETE CASCADE,
-    shahar_id   INTEGER      NOT NULL REFERENCES shaharlar(id) ON DELETE RESTRICT,
-    kocha_uy    VARCHAR(200) NOT NULL,
-    telefon     VARCHAR(20)  NOT NULL,
-    asosiy      BOOLEAN      NOT NULL DEFAULT FALSE
+-- 5. Property_Amenities (N:N junction jadval)
+CREATE TABLE property_amenities (
+    property_id INT NOT NULL,
+    amenity_id INT NOT NULL,
+    PRIMARY KEY (property_id, amenity_id),
+    CONSTRAINT fk_pa_property FOREIGN KEY (property_id) 
+        REFERENCES properties(property_id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_pa_amenity FOREIGN KEY (amenity_id) 
+        REFERENCES amenities(amenity_id) 
+        ON DELETE CASCADE
 );
 
--- Bir mijozda faqat BITTA asosiy manzil — partial unique index
-CREATE UNIQUE INDEX manzillar_bitta_asosiy
-    ON manzillar (mijoz_id) WHERE asosiy;
-
-CREATE TABLE buyurtmalar (
-    id           INTEGER     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    mijoz_id     INTEGER     NOT NULL REFERENCES mijozlar(id) ON DELETE RESTRICT,
-    -- TUZATISH 5: bajarilish holati va to'lov holati AJRATILDI
-    holat        VARCHAR(20) NOT NULL DEFAULT 'yangi'
-                 CHECK (holat IN ('yangi','yigilmoqda','jonatildi','yetkazildi','bekor')),
-    -- TUZATISH 3: manzil FK EMAS, balki NUSXA. Mijoz ko'chib ketsa ham
-    -- bu buyurtma qayerga yetkazilgani o'zgarmaydi.
-    yetkazish_manzili TEXT     NOT NULL,
-    yetkazish_telefoni VARCHAR(20) NOT NULL,
-    yaratilgan   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+-- 6. Bookings jadvali (Bronlar)
+CREATE TABLE bookings (
+    booking_id SERIAL PRIMARY KEY,
+    property_id INT NOT NULL,
+    guest_id INT NOT NULL,
+    date_range DATERANGE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    total_price NUMERIC(14,2) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_booking_status CHECK (status IN ('pending', 'confirmed', 'cancelled', 'completed')),
+    CONSTRAINT chk_total_price CHECK (total_price > 0),
+    CONSTRAINT fk_booking_property FOREIGN KEY (property_id) 
+        REFERENCES properties(property_id) 
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_booking_guest FOREIGN KEY (guest_id) 
+        REFERENCES users(user_id) 
+        ON DELETE RESTRICT,
+    -- Bir obyekt bir vaqtda ikki marta bron qilinmasligi uchun EXCLUDE constraint
+    EXCLUDE USING gist (
+        property_id WITH =,
+        date_range WITH &&
+    ) WHERE (status != 'cancelled')
 );
 
-CREATE TABLE buyurtma_elementlari (
-    id          INTEGER       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    buyurtma_id INTEGER       NOT NULL REFERENCES buyurtmalar(id) ON DELETE CASCADE,
-    mahsulot_id INTEGER       NOT NULL REFERENCES mahsulotlar(id) ON DELETE RESTRICT,
-    miqdor      INTEGER       NOT NULL CHECK (miqdor > 0),
-    narx_birlik NUMERIC(14,2) NOT NULL CHECK (narx_birlik > 0),
-    -- TUZATISH 1: eng muhim tuzatish. Busiz bitta mahsulot bitta
-    -- buyurtmada ikki marta paydo bo'lib, hisobotlarni buzardi.
-    CONSTRAINT bel_buyurtma_mahsulot_uq UNIQUE (buyurtma_id, mahsulot_id)
+-- 7. Payments jadvali (To'lovlar)
+CREATE TABLE payments (
+    payment_id SERIAL PRIMARY KEY,
+    booking_id INT NOT NULL,
+    amount NUMERIC(14,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    paid_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_payment_amount CHECK (amount > 0),
+    CONSTRAINT chk_payment_status CHECK (status IN ('pending', 'success', 'failed', 'refunded')),
+    CONSTRAINT fk_payment_booking FOREIGN KEY (booking_id) 
+        REFERENCES bookings(booking_id) 
+        ON DELETE CASCADE
 );
 
--- ── TUZATISH 5: to'lov — mustaqil mohiyat ─────────────────────────────
-CREATE TABLE tolovlar (
-    id            INTEGER       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    buyurtma_id   INTEGER       NOT NULL REFERENCES buyurtmalar(id) ON DELETE RESTRICT,
-    summa         NUMERIC(14,2) NOT NULL CHECK (summa > 0),
-    usul          VARCHAR(20)   NOT NULL
-                  CHECK (usul IN ('naqd','karta','click','payme','bank')),
-    holat         VARCHAR(20)   NOT NULL DEFAULT 'kutmoqda'
-                  CHECK (holat IN ('kutmoqda','tasdiqlandi','rad_etildi','qaytarildi')),
-    tranzaksiya_id VARCHAR(64),
-    vaqti         TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    -- tashqi to'lov tizimidagi ID takrorlanmasin
-    CONSTRAINT tolovlar_tranzaksiya_uq UNIQUE (tranzaksiya_id)
+-- 8. Reviews jadvali (Sharhlar + Self-referential javoblar)
+CREATE TABLE reviews (
+    review_id SERIAL PRIMARY KEY,
+    booking_id INT NOT NULL,
+    property_id INT NOT NULL,
+    guest_id INT NOT NULL,
+    rating INT NOT NULL,
+    comment TEXT,
+    parent_review_id INT DEFAULT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_rating CHECK (rating BETWEEN 1 AND 5),
+    CONSTRAINT fk_review_booking FOREIGN KEY (booking_id) 
+        REFERENCES bookings(booking_id) 
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_review_property FOREIGN KEY (property_id) 
+        REFERENCES properties(property_id) 
+        ON DELETE CASCADE,
+    CONSTRAINT fk_review_guest FOREIGN KEY (guest_id) 
+        REFERENCES users(user_id) 
+        ON DELETE RESTRICT,
+    CONSTRAINT fk_review_parent FOREIGN KEY (parent_review_id) 
+        REFERENCES reviews(review_id) 
+        ON DELETE CASCADE
 );
 
--- ── TUZATISH 6: zaxira harakati — kirim/chiqim tarixi ─────────────────
-CREATE TABLE zaxira_harakatlari (
-    id          INTEGER     GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    mahsulot_id INTEGER     NOT NULL REFERENCES mahsulotlar(id) ON DELETE RESTRICT,
-    -- musbat = kirim (yetkazib berildi), manfiy = chiqim (sotildi)
-    ozgarish    INTEGER     NOT NULL CHECK (ozgarish <> 0),
-    sabab       VARCHAR(20) NOT NULL
-                CHECK (sabab IN ('kirim','sotuv','qaytarish','inventarizatsiya','yaroqsiz')),
-    buyurtma_id INTEGER     REFERENCES buyurtmalar(id) ON DELETE SET NULL,
-    vaqti       TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+-- Indekslar (Barcha FK ustunlariga va kompozit/partial indekslar)
+CREATE INDEX idx_profiles_user_id ON profiles(user_id);
+CREATE INDEX idx_properties_host_id ON properties(host_id);
+CREATE INDEX idx_pa_property_id ON property_amenities(property_id);
+CREATE INDEX idx_pa_amenity_id ON property_amenities(amenity_id);
+CREATE INDEX idx_bookings_property_id ON bookings(property_id);
+CREATE INDEX idx_bookings_guest_id ON bookings(guest_id);
+CREATE INDEX idx_payments_booking_id ON payments(booking_id);
+CREATE INDEX idx_reviews_booking_id ON reviews(booking_id);
+CREATE INDEX idx_reviews_property_id ON reviews(property_id);
+CREATE INDEX idx_reviews_guest_id ON reviews(guest_id);
+CREATE INDEX idx_reviews_parent_id ON reviews(parent_review_id);
 
--- Kesh ustunini harakatlar bilan sinxron ushlab turuvchi trigger
-CREATE OR REPLACE FUNCTION zaxirani_yangilash() RETURNS TRIGGER AS $$
+-- Kompozit va Partial Unique Index misoli
+CREATE UNIQUE INDEX idx_unique_completed_booking_review 
+ON reviews(booking_id) 
+WHERE parent_review_id IS NULL; -- Har bir asosiy bron uchun faqat bitta boshlang'ich sharh bo'lishi mumkin
+3. 📝 DIZAYN.md (Arxitektura javoblari)
+1. Sanalar kesishishini qanday bloklaysiz va nega aynan shu usulni tanladingiz?
+Usul: PostgreSQL-ning btree_gist kengaytmasi yordamida EXCLUDE USING gist cheklovidan foydalandik va sanalarni daterange turi sifatida saqladik.
+
+Nega: An'anaviy CHECK yoki dasturiy kod orqali tekshirish Race Condition (bir vaqtning o'zida kelgan so'rovlar) paytida xatolikka yo'l qo'yishi mumkin. GIST indeksi darajasidagi eksklyuziv qulf ma'lumotlar bazasi yadrosida ishlaydi va ikki foydalanuvchi bir vaqtning o'zida bir xil sanalarga bron yuborsa ham, ikkinchisining so'rovini bazaning o'zi avtomatik ravishda rad etishini kafolatlaydi.
+
+2. Narx qayerda saqlanadi — obyektda, narx kalendarida yoki bronda? Nega?
+Javob: Boshlang'ich narx properties.base_price da saqlanadi, lekin har bir aniq bookings.total_price ustunida tarixiy nusxa sifatida qat'iy saqlanadi.
+
+Nega: Agar kelgusida uy egasi o'z uyining narxini oshirsa, eski qilingan bronlar narxi o'zgarmasligi kerak (moliyaviy va huquqiy shaffoflik uchun). Tarixiy nusxa saqlash bron qilingan paytdagi kelishuvni o'zgarmas saqlaydi.
+
+3. Sharh yozish huquqini (faqat yashab chiqqan mehmon) qanday cheklaysiz?
+Javob: Bazadagi reviews jadvaliga yozishdan oldin Trigger yoki CHECK jarayoni orqali bron holati completed ekanligi va sharh yozayotgan shaxs shu bronning guest_id siga teng ekanligi tekshiriladi. (Bonus qismida keltirilgan trigger aynan shu vazifani bajaradi).
+
+4. Bekor qilingan bron DELETE qilinadimi yoki holat bilan belgilanadimi? To'lov o'tgan bo'lsa nima bo'ladi?
+Javob: Aslo DELETE qilinmaydi! Bron status = 'cancelled' holatiga o'tkaziladi.
+
+Nega: Tizimda audit, analitika va moliyaviy hisobotlar uchun barcha tarix saqlanishi shart. Agar to'lov allaqachon o'tgan bo'lsa (payments.status = 'success'), u holda to'lov yozuvi o'chirilmaydi, balki uning holati refunded (qaytarildi) deb o'zgartiriladi va bu buxgalteriya hisobotlarida to'g'ri aks etadi.
+
+4. 🚀 Bonus Qismlar (Trigger, Materialized View va Hisobotlar)
+Trigger: Faqat tugatilgan bron uchun sharh yozishni tekshirish
+SQL
+CREATE OR REPLACE FUNCTION check_review_permission()
+RETURNS TRIGGER AS $$
 BEGIN
-    UPDATE mahsulotlar
-    SET zaxira = zaxira + NEW.ozgarish,
-        yangilangan = NOW()
-    WHERE id = NEW.mahsulot_id;
-    RETURN NULL;
+    IF NOT EXISTS (
+        SELECT 1 FROM bookings 
+        WHERE booking_id = NEW.booking_id 
+          AND guest_id = NEW.guest_id 
+          AND status = 'completed'
+    ) THEN
+        RAISE EXCEPTION 'Faqatgina yakunlangan (completed) bronlar uchun sharh yozish mumkin!';
+    END IF;
+    RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER zaxira_harakat_trigger
-    AFTER INSERT ON zaxira_harakatlari
-    FOR EACH ROW EXECUTE FUNCTION zaxirani_yangilash();
+CREATE TRIGGER trg_enforce_review_rule
+BEFORE INSERT ON reviews
+FOR EACH ROW
+EXECUTE FUNCTION check_review_permission();
+Materialized View: Bandlik Dashboardi
+SQL
+CREATE MATERIALIZED VIEW mv_property_occupancy_dashboard AS
+p.property_id,
+    p.title,
+    p.city,
+    COUNT(b.booking_id) AS total_bookings,
+    COALESCE(SUM(b.total_price), 0.00) AS total_revenue
+FROM properties p
+LEFT JOIN bookings b ON p.property_id = b.property_id AND b.status = 'confirmed'
+GROUP BY p.property_id, p.title, p.city;
+8 ta Asosiy Hisobot So'rovlari (SQL)
+Sana oralig'ida bo'sh obyektlar:
 
--- ── Indekslar: har FK ga + tez-tez ishlatiladigan filtrlarga ──────────
-CREATE INDEX mijozlar_shahar_idx        ON mijozlar (shahar_id);
-CREATE INDEX kategoriyalar_ota_idx      ON kategoriyalar (ota_id);
-CREATE INDEX mahsulotlar_kategoriya_idx ON mahsulotlar (kategoriya_id);
-CREATE INDEX manzillar_mijoz_idx        ON manzillar (mijoz_id);
-CREATE INDEX buyurtmalar_mijoz_vaqt_idx ON buyurtmalar (mijoz_id, yaratilgan DESC);
-CREATE INDEX bel_mahsulot_idx           ON buyurtma_elementlari (mahsulot_id);
-CREATE INDEX tolovlar_buyurtma_idx      ON tolovlar (buyurtma_id);
-CREATE INDEX zaxira_mahsulot_vaqt_idx   ON zaxira_harakatlari (mahsulot_id, vaqti DESC);
+SQL
+SELECT * FROM properties p
+WHERE NOT EXISTS (
+    SELECT 1 FROM bookings b 
+    WHERE b.property_id = p.property_id 
+      AND b.status != 'cancelled'
+      AND b.date_range && daterange('2026-09-01', '2026-09-10', '[]');
+);
+Bandlik foizi (90 kunlik):
 
--- ═══════════════════════════════════════════════════════════════════════
--- Test ma'lumot
--- ═══════════════════════════════════════════════════════════════════════
-INSERT INTO shaharlar (nomi, viloyati) VALUES
-    ('Toshkent',  'Toshkent shahri'),
-    ('Samarqand', 'Samarqand viloyati'),
-    ('Buxoro',    'Buxoro viloyati');
+SQL
+SELECT p.property_id, p.title,
+       ROUND(COALESCE(SUM(UPPER(b.date_range) - LOWER(b.date_range)), 0) * 100.0 / 90, 2) AS occupancy_rate_pct
+FROM properties p
+LEFT JOIN bookings b ON p.property_id = b.property_id 
+     AND b.status = 'confirmed'
+     AND b.date_range && daterange(CURRENT_DATE, CURRENT_DATE + 90, '[]');
+GROUP BY p.property_id, p.title;
+Uy egalari daromad reytingi:
 
-INSERT INTO mijozlar (ism, email, shahar_id) VALUES
-    ('Aziz Karimov',     'aziz@shop.uz',   1),
-    ('Dilnoza Rasulova', 'dilya@shop.uz',  2),
-    ('Sardor Tursunov',  'sardor@shop.uz', 1);
+SQL
+SELECT u.user_id, p.first_name, p.last_name, SUM(pay.amount) AS total_earned
+FROM users u
+JOIN profiles p ON u.user_id = p.user_id
+JOIN properties pr ON pr.host_id = u.user_id
+JOIN bookings b ON b.property_id = pr.property_id
+JOIN payments pay ON pay.booking_id = b.booking_id
+WHERE pay.status = 'success'
+GROUP BY u.user_id, p.first_name, p.last_name
+ORDER BY total_earned DESC;
+O'rtacha bahosi TOP-5 obyekt (3+ sharh bilan):
 
--- Ierarxik kategoriyalar
-INSERT INTO kategoriyalar (ota_id, nomi) VALUES (NULL, 'Elektronika');
-INSERT INTO kategoriyalar (ota_id, nomi) VALUES (1, 'Telefonlar'), (1, 'Noutbuklar');
+SQL
+SELECT p.property_id, p.title, ROUND(AVG(r.rating), 2) AS avg_rating, COUNT(r.review_id) AS review_count
+FROM properties p
+JOIN reviews r ON p.property_id = r.property_id
+WHERE r.parent_review_id IS NULL
+GROUP BY p.property_id, p.title
+HAVING COUNT(r.review_id) >= 3
+ORDER BY avg_rating DESC
+LIMIT 5;
+Qisman / to'lanmagan bronlar:
 
-INSERT INTO mahsulotlar (kategoriya_id, nomi, narx) VALUES
-    (2, 'iPhone 15',      15000000),
-    (2, 'Samsung S24',    12000000),
-    (3, 'MacBook Pro 14', 22000000);
+SQL
+SELECT b.booking_id, b.guest_id, b.total_price, COALESCE(pay.status, 'no_payment') AS payment_status
+FROM bookings b
+LEFT JOIN payments pay ON b.booking_id = pay.booking_id
+WHERE b.status = 'confirmed' AND (pay.status IS NULL OR pay.status != 'success');
+Mehmonlar bo'yicha bekor qilish darajasi:
 
--- Zaxira faqat harakat orqali o'zgaradi — trigger keshni yangilaydi
-INSERT INTO zaxira_harakatlari (mahsulot_id, ozgarish, sabab) VALUES
-    (1, 10, 'kirim'), (2, 8, 'kirim'), (3, 5, 'kirim');
+SQL
+SELECT u.user_id, p.first_name, p.last_name,
+       COUNT(b.booking_id) AS total_bookings,
+       SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_count,
+       ROUND(SUM(CASE WHEN b.status = 'cancelled' THEN 1 ELSE 0 END) * 100.0 / COUNT(b.booking_id), 2) AS cancellation_rate
+FROM users u
+JOIN profiles p ON u.user_id = p.user_id
+JOIN bookings b ON u.user_id = b.guest_id
+GROUP BY u.user_id, p.first_name, p.last_name
+HAVING COUNT(b.booking_id) > 0;
+Qulayliklar va baho bog'liqligi (N:N + agregat):
 
-SELECT nomi, zaxira FROM mahsulotlar ORDER BY id;   -- 10, 8, 5
+SQL
+SELECT a.name AS amenity_name, ROUND(AVG(r.rating), 2) AS avg_property_rating
+FROM amenities a
+JOIN property_amenities pa ON a.amenity_id = pa.amenity_id
+JOIN properties p ON pa.property_id = p.property_id
+JOIN reviews r ON p.property_id = r.property_id
+GROUP BY a.amenity_id, a.name
+ORDER BY avg_property_rating DESC;
+Oylik daromad trendi (LAG orqali):
 
-INSERT INTO manzillar (mijoz_id, shahar_id, kocha_uy, telefon, asosiy) VALUES
-    (1, 1, 'Amir Temur ko''chasi, 15-uy', '+998901112233', TRUE),
-    (1, 1, 'Yunusobod 4-kvartal, 22-uy',  '+998901112233', FALSE),
-    (2, 2, 'Registon ko''chasi, 7-uy',    '+998907778899', TRUE);
-
--- Ikkinchi "asosiy" manzil bloklanadi:
--- UPDATE manzillar SET asosiy = TRUE WHERE id = 2;
--- ERROR:  duplicate key value violates unique constraint "manzillar_bitta_asosiy"
-
--- Buyurtma: manzil NUSXA sifatida yoziladi, FK sifatida emas
-INSERT INTO buyurtmalar (mijoz_id, holat, yetkazish_manzili, yetkazish_telefoni) VALUES
-    (1, 'yetkazildi', 'Toshkent, Amir Temur ko''chasi, 15-uy', '+998901112233'),
-    (2, 'yigilmoqda', 'Samarqand, Registon ko''chasi, 7-uy',   '+998907778899');
-
-INSERT INTO buyurtma_elementlari (buyurtma_id, mahsulot_id, miqdor, narx_birlik) VALUES
-    (1, 1, 1, 15000000),
-    (1, 3, 1, 22000000),
-    (2, 2, 2, 12000000);
-
--- Dublikat endi BLOKLANADI (v1 da bu bemalol o'tib ketardi):
--- INSERT INTO buyurtma_elementlari (buyurtma_id, mahsulot_id, miqdor, narx_birlik)
--- VALUES (1, 1, 5, 14000000);
--- ERROR:  duplicate key value violates unique constraint "bel_buyurtma_mahsulot_uq"
-
--- Sotuv zaxiradan chiqim yaratadi
-INSERT INTO zaxira_harakatlari (mahsulot_id, ozgarish, sabab, buyurtma_id) VALUES
-    (1, -1, 'sotuv', 1), (3, -1, 'sotuv', 1), (2, -2, 'sotuv', 2);
-
-SELECT nomi, zaxira FROM mahsulotlar ORDER BY id;   -- 9, 6, 4
-
-INSERT INTO tolovlar (buyurtma_id, summa, usul, holat, tranzaksiya_id) VALUES
-    (1, 37000000, 'click', 'tasdiqlandi', 'CLK-2026-0001'),
-    (2, 12000000, 'karta', 'tasdiqlandi', 'CRD-2026-0002');
--- Diqqat: 2-buyurtma qisman to'langan (24 mln dan 12 mln).
--- v1 sxemasida buni ifodalash IMKONSIZ edi.
-
--- ═══════════════════════════════════════════════════════════════════════
--- v2 sxema ochgan yangi imkoniyatlar
--- ═══════════════════════════════════════════════════════════════════════
-
--- 1) Viloyat bo'yicha daromad — v1 da IMKONSIZ edi (viloyat saqlanmagan)
-SELECT s.viloyati,
-       COUNT(DISTINCT b.id)              AS buyurtmalar,
-       SUM(e.miqdor * e.narx_birlik)     AS daromad
-FROM buyurtmalar b
-JOIN mijozlar m  ON m.id = b.mijoz_id
-JOIN shaharlar s ON s.id = m.shahar_id
-JOIN buyurtma_elementlari e ON e.buyurtma_id = b.id
-GROUP BY s.viloyati
-ORDER BY daromad DESC;
-
--- 2) To'liq to'lanmagan buyurtmalar — v1 da IMKONSIZ edi
-SELECT b.id,
-       SUM(e.miqdor * e.narx_birlik) AS buyurtma_summasi,
-       COALESCE(t.tolangan, 0)       AS tolangan,
-       SUM(e.miqdor * e.narx_birlik) - COALESCE(t.tolangan, 0) AS qarz
-FROM buyurtmalar b
-JOIN buyurtma_elementlari e ON e.buyurtma_id = b.id
-LEFT JOIN (
-    SELECT buyurtma_id, SUM(summa) AS tolangan
-    FROM tolovlar WHERE holat = 'tasdiqlandi'
-    GROUP BY buyurtma_id
-) t ON t.buyurtma_id = b.id
-GROUP BY b.id, t.tolangan
-HAVING SUM(e.miqdor * e.narx_birlik) > COALESCE(t.tolangan, 0);
-
--- 3) Zaxira tarixi — "nega 3 ta kam?" savoliga javob. v1 da IMKONSIZ.
-SELECT p.nomi, z.vaqti, z.ozgarish, z.sabab, z.buyurtma_id
-FROM zaxira_harakatlari z
-JOIN mahsulotlar p ON p.id = z.mahsulot_id
-ORDER BY p.nomi, z.vaqti;
-
--- 4) Kategoriya ierarxiyasi — recursive CTE. v1 da IMKONSIZ.
-WITH RECURSIVE kat_yol AS (
-    SELECT id, nomi, nomi::TEXT AS yol FROM kategoriyalar WHERE ota_id IS NULL
-    UNION ALL
-    SELECT k.id, k.nomi, y.yol || ' > ' || k.nomi
-    FROM kategoriyalar k JOIN kat_yol y ON k.ota_id = y.id
+SQL
+WITH monthly_revenue AS (
+    SELECT DATE_TRUNC('month', pay.paid_at) AS revenue_month, SUM(pay.amount) AS monthly_total
+    FROM payments pay
+    WHERE pay.status = 'success'
+    GROUP BY revenue_month
 )
-SELECT y.yol AS kategoriya_yoli, COUNT(p.id) AS mahsulotlar
-FROM kat_yol y
-LEFT JOIN mahsulotlar p ON p.kategoriya_id = y.id
-GROUP BY y.yol
-ORDER BY y.yol;
-
--- 5) Kesh tekshiruvi: mahsulotlar.zaxira harakatlar bilan mos keladimi?
-SELECT p.id, p.nomi, p.zaxira AS keshdagi,
-       COALESCE(SUM(z.ozgarish), 0) AS haqiqiy
-FROM mahsulotlar p
-LEFT JOIN zaxira_harakatlari z ON z.mahsulot_id = p.id
-GROUP BY p.id, p.nomi, p.zaxira
-HAVING p.zaxira <> COALESCE(SUM(z.ozgarish), 0);
--- Bo'sh natija = kesh to'g'ri.
+SELECT revenue_month, monthly_total,
+       LAG(monthly_total, 1) OVER (ORDER BY revenue_month) AS previous_month_total,
+       monthly_total - LAG(monthly_total, 1) OVER (ORDER BY revenue_month) AS revenue_diff
+FROM monthly_revenue;
