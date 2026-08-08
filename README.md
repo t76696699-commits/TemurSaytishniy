@@ -1,184 +1,170 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- EXPLAIN ANALYZE ni chuqur o'qish
+-- Indeks turlari: B-tree, kompozit, qisman, GIN, covering, BRIN
 -- ═══════════════════════════════════════════════════════════════════════
 
-DROP TABLE IF EXISTS tolovlar;
+DROP TABLE IF EXISTS maqolalar;
 
-CREATE TABLE tolovlar (
-    id       BIGSERIAL     PRIMARY KEY,
-    mijoz_id INTEGER       NOT NULL,
-    sana     DATE          NOT NULL,
-    holat    VARCHAR(20)   NOT NULL,
-    summa    NUMERIC(12,2) NOT NULL
+CREATE TABLE maqolalar (
+    id         BIGSERIAL   PRIMARY KEY,
+    muallif_id INTEGER     NOT NULL,
+    sarlavha   TEXT        NOT NULL,
+    matn       TEXT        NOT NULL,
+    teglar     TEXT[]      NOT NULL DEFAULT '{}',
+    meta       JSONB       NOT NULL DEFAULT '{}',
+    holat      VARCHAR(20) NOT NULL,
+    sana       TIMESTAMPTZ NOT NULL
 );
 
--- 200 000 qator. Kichik jadvalda rejalar ishonchsiz: 100 qatorlik
--- jadvalni to'liq skanerlash HAR DOIM arzon, shuning uchun indeks
--- foydasi umuman ko'rinmaydi.
-INSERT INTO tolovlar (mijoz_id, sana, holat, summa)
+INSERT INTO maqolalar (muallif_id, sarlavha, matn, teglar, meta, holat, sana)
 SELECT
-    (random() * 5000)::INT + 1,
-    DATE '2023-01-01' + (random() * 700)::INT,
-    (ARRAY['yangi','tolangan','bekor','qaytarilgan'])[(random() * 3)::INT + 1],
-    (random() * 900000 + 10000)::NUMERIC(12,2)
-FROM generate_series(1, 200000);
-
--- ANALYZE statistikani yangilaydi. Busiz planner jadval haqida deyarli
--- hech narsa bilmaydi va butunlay noto'g'ri reja tanlashi mumkin.
-ANALYZE tolovlar;
-
--- ─────────────────────────────────────────────────────────────────────
--- 1) EXPLAIN — bajarmaydi, faqat TAXMIN qiladi
--- ─────────────────────────────────────────────────────────────────────
-EXPLAIN SELECT * FROM tolovlar WHERE holat = 'bekor';
---  Seq Scan on tolovlar  (cost=0.00..4073.00 rows=66853 width=31)
---                              ^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^
---                              |             |          bitta qator ~31 bayt
---                              |             planner 66853 qator kutmoqda
---                              birinchi..oxirgi qator narxi
-
--- ─────────────────────────────────────────────────────────────────────
--- 2) Seq Scan — qatorlarning katta qismi kerak bo'lganda
--- ─────────────────────────────────────────────────────────────────────
-EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tolovlar WHERE summa > 20000;
---  Seq Scan ... rows=197700 ... (actual time=0.005..16.116 rows=197787 loops=1)
---    Rows Removed by Filter: 2213
---    Buffers: shared hit=1573
---  Taxmin 197700, haqiqat 197787 — planner deyarli aniq. Yaxshi belgi.
+    (random() * 500)::INT + 1,
+    'Maqola ' || g,
+    'PostgreSQL indekslari haqida matn ' || g
+      -- qatorlarning ~0.5% iga kamyob so'z qo'shamiz: full-text testi uchun
+      || CASE WHEN random() < 0.005 THEN ' noyobatama' ELSE '' END,
+    CASE (random() * 3)::INT
+        WHEN 0 THEN ARRAY['sql','backend']
+        WHEN 1 THEN ARRAY['python']
+        WHEN 2 THEN ARRAY['sql','performance']
+        ELSE        ARRAY['devops']
+    END,
+    jsonb_build_object(
+        'til',  (ARRAY['uz','ru','en'])[(random() * 2)::INT + 1],
+        'reja', CASE WHEN random() < 0.01 THEN 'pro' ELSE 'free' END,
+        'ko_rishlar', (random() * 1000)::INT
+    ),
+    CASE WHEN random() < 0.02 THEN 'qoralama' ELSE 'chop_etilgan' END,
+    NOW() - (random() * 700 || ' days')::INTERVAL
+FROM generate_series(1, 200000) g;
+ANALYZE maqolalar;
 
 -- ─────────────────────────────────────────────────────────────────────
--- 3) Indeks BOR, lekin baribir Seq Scan — va bu TO'G'RI qaror
+-- 1) KOMPOZIT INDEKS — ustunlar tartibi hal qiluvchi
 -- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_tolovlar_holat ON tolovlar(holat);
-CREATE INDEX idx_tolovlar_mijoz ON tolovlar(mijoz_id);
-ANALYZE tolovlar;
+CREATE INDEX idx_m_muallif_sana ON maqolalar(muallif_id, sana);
+ANALYZE maqolalar;
 
--- 'bekor' EMAS -> qatorlarning ~75% i. Indeks orqali ularni bittalab
--- olish, butun jadvalni ketma-ket o'qishdan QIMMATROQ.
-EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tolovlar WHERE holat <> 'bekor';
---  Seq Scan on tolovlar ... (actual time=0.006..13.427 rows=133440 loops=1)
---  Indeks bor, lekin ishlatilmadi. Planner haq.
+-- (a) Ikkala ustun ham shartda -> indeks to'liq ishlaydi
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT * FROM maqolalar WHERE muallif_id = 42 AND sana > NOW() - INTERVAL '30 days';
+--  ->  Bitmap Index Scan on idx_m_muallif_sana  (cost=0.00..4.59 ...)
 
--- ─────────────────────────────────────────────────────────────────────
--- 4) Bitmap Heap Scan — "o'rta" holat (~25%)
---    Ikki bosqich: Bitmap Index Scan sahifalar xaritasini yig'adi,
---    Bitmap Heap Scan esa ularni DISK TARTIBIDA o'qiydi.
--- ─────────────────────────────────────────────────────────────────────
-EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tolovlar WHERE holat = 'bekor';
---  Bitmap Heap Scan on tolovlar  (cost=740.16..3138.75 rows=66047 ...)
---    Recheck Cond: ((holat)::text = 'bekor'::text)
---    Heap Blocks: exact=1573
---    ->  Bitmap Index Scan on idx_tolovlar_holat (actual ... rows=66560 ...)
---  cost 3138 < Seq Scan ning 4073 si — shuning uchun bitmap tanlandi.
---  "lossy=" paydo bo'lsa: bitmap work_mem ga sig'magan.
+-- (b) Faqat BIRINCHI ustun (chapdan prefiks) -> ishlaydi
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT * FROM maqolalar WHERE muallif_id = 42;
+--  ->  Bitmap Index Scan on idx_m_muallif_sana  (cost=0.00..11.40 ...)
+
+-- (c) Faqat IKKINCHI ustun -> indeks BOSHDAN-OXIR skanerlanadi
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT * FROM maqolalar WHERE sana > NOW() - INTERVAL '3 days';
+--  ->  Bitmap Index Scan on idx_m_muallif_sana  (cost=0.00..4592.43 ...)
+--                                                        ^^^^^^^
+--  Narxni (a) dagi 4.59 bilan solishtiring — 1000 baravar farq.
+--  Rejada "Index Scan" so'zi bo'lishi hali hammasi joyida degani emas.
 
 -- ─────────────────────────────────────────────────────────────────────
--- 5) Index Scan — unikal qidiruv
+-- 2) QISMAN (PARTIAL) INDEKS — faqat kerakli qatorlar uchun
 -- ─────────────────────────────────────────────────────────────────────
-EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tolovlar WHERE id = 123456;
---  Index Scan using tolovlar_pkey ... (actual time=0.015..0.015 rows=1 loops=1)
---    Buffers: shared hit=7        <-- atigi 7 sahifa
---  Execution Time: 0.025 ms
+CREATE INDEX idx_m_qoralama ON maqolalar(muallif_id) WHERE holat = 'qoralama';
+ANALYZE maqolalar;
 
--- ORDER BY + LIMIT ham Index Scan ni "chaqiradi": indeks allaqachon
--- tartiblangan, shuning uchun 20 ta qator olib to'xtash mumkin.
-EXPLAIN (ANALYZE, BUFFERS)
-SELECT * FROM tolovlar WHERE mijoz_id BETWEEN 100 AND 300 ORDER BY mijoz_id LIMIT 20;
+EXPLAIN (ANALYZE, TIMING OFF, BUFFERS)
+SELECT * FROM maqolalar WHERE holat = 'qoralama' AND muallif_id = 42;
+--  ->  Bitmap Index Scan on idx_m_qoralama  (cost=0.00..4.34 ...)
 
--- ─────────────────────────────────────────────────────────────────────
--- 6) KUTILMAGAN NATIJA: 200 000 dan atigi 38 qator, lekin baribir Bitmap
--- ─────────────────────────────────────────────────────────────────────
-EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM tolovlar WHERE mijoz_id = 777;
---  Bitmap Heap Scan ... (actual time=0.028..0.074 rows=38 loops=1)
---    Heap Blocks: exact=38
---  38 qator 38 ta TURLI sahifada yotibdi (ma'lumot tasodifiy kiritilgan).
---  Ya'ni rejaga faqat qatorlar SONI emas, ularning JISMONIY joylashuvi
---  ham ta'sir qiladi.
+-- Hajmlarni solishtiramiz:
+SELECT pg_size_pretty(pg_relation_size('idx_m_muallif_sana')) AS toliq_indeks,
+       pg_size_pretty(pg_relation_size('idx_m_qoralama'))     AS qisman_indeks;
+--  toliq_indeks | qisman_indeks
+--  6184 kB      | 56 kB          <-- 110 baravar kichik
 
 -- ─────────────────────────────────────────────────────────────────────
--- 7) Index Only Scan — va nega u darhol ishlamaydi
+-- 3) GIN — massiv ichidagi qiymat bo'yicha qidiruv
 -- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_tolovlar_mijoz_summa ON tolovlar(mijoz_id, summa);
-ANALYZE tolovlar;
-
--- Kerakli ikkala ustun ham indeksda bor. Lekin reja hali ham Bitmap:
-EXPLAIN (ANALYZE, BUFFERS) SELECT mijoz_id, summa FROM tolovlar WHERE mijoz_id = 777;
---  Bitmap Heap Scan ... Buffers: shared hit=42
---  Sababi: indeks qatorning KO'RINUVCHANLIGINI bilmaydi. Buni visibility
---  map saqlaydi, uni esa VACUUM to'ldiradi. Ommaviy yuklashdan keyin u bo'sh.
-
--- DIQQAT: VACUUM ni tranzaksiya ichida bajarib BO'LMAYDI.
---   ERROR:  VACUUM cannot run inside a transaction block
--- Quyidagi qatorni alohida, avtomatik commit rejimida ishga tushiring:
-VACUUM (ANALYZE) tolovlar;
-
-EXPLAIN (ANALYZE, BUFFERS) SELECT mijoz_id, summa FROM tolovlar WHERE mijoz_id = 777;
---  Index Only Scan using idx_tolovlar_mijoz_summa ...
---    Heap Fetches: 0              <-- jadvalga UMUMAN murojaat qilinmadi
---    Buffers: shared hit=4        <-- 42 o'rniga 4 sahifa
---  Bu "covering index" ning butun ma'nosi.
-
--- ─────────────────────────────────────────────────────────────────────
--- 8) Planner ADASHGANDA: bog'liq ustunlar
--- ─────────────────────────────────────────────────────────────────────
-DROP TABLE IF EXISTS manzillar;
-CREATE TABLE manzillar (
-    id      BIGSERIAL     PRIMARY KEY,
-    shahar  VARCHAR(30)   NOT NULL,
-    viloyat VARCHAR(30)   NOT NULL,
-    summa   NUMERIC(10,2) NOT NULL
-);
-
--- shahar viloyatni TO'LIQ aniqlaydi — funksional bog'liqlik bor
-INSERT INTO manzillar (shahar, viloyat, summa)
-SELECT s.shahar, s.viloyat, (random() * 100000)::NUMERIC(10,2)
-FROM generate_series(1, 200000) g
-CROSS JOIN LATERAL (
-    SELECT * FROM (VALUES
-        ('Nurafshon','Toshkent'), ('Chirchiq','Toshkent'), ('Angren','Toshkent'),
-        ('Urgut','Samarqand'),    ('Kattaqorgon','Samarqand'),
-        ('Gijduvon','Buxoro'),    ('Kogon','Buxoro'),
-        ('Margilon','Fargona'),   ('Qoqon','Fargona'), ('Quva','Fargona')
-    ) AS v(shahar, viloyat) OFFSET (g % 10) LIMIT 1
-) s;
-ANALYZE manzillar;
+CREATE INDEX idx_m_teglar ON maqolalar USING GIN (teglar);
+ANALYZE maqolalar;
 
 EXPLAIN (ANALYZE, TIMING OFF)
-SELECT * FROM manzillar WHERE shahar = 'Margilon' AND viloyat = 'Fargona';
---  Seq Scan ... rows=6154 ... (actual rows=20000 loops=1)
---               ^^^^^^^^^              ^^^^^^^^^^
---               taxmin                 haqiqat — 3 baravar farq!
---  Sabab: planner ikki ustunni MUSTAQIL deb hisoblab, tanlanuvchanliklarni
---  ko'paytirdi. Aslida shahar viloyatni to'liq aniqlaydi.
+SELECT id, sarlavha FROM maqolalar WHERE teglar @> ARRAY['devops'];
+--  ->  Bitmap Index Scan on idx_m_teglar ... rows=33518
 
--- Yechim — ko'p ustunli kengaytirilgan statistika:
-CREATE STATISTICS st_manzil (dependencies) ON shahar, viloyat FROM manzillar;
-ANALYZE manzillar;
+-- ─────────────────────────────────────────────────────────────────────
+-- 4) GIN — jsonb. jsonb_path_ops kichikroq va @> uchun tezroq.
+-- ─────────────────────────────────────────────────────────────────────
+CREATE INDEX idx_m_meta ON maqolalar USING GIN (meta jsonb_path_ops);
+ANALYZE maqolalar;
+
+-- TANLANUVCHAN shart (~1% qator) -> indeks ishlaydi
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT id FROM maqolalar WHERE meta @> '{"reja":"pro"}';
+--  ->  Bitmap Index Scan on idx_m_meta ... rows=1964,  Execution Time: 1.6 ms
+
+-- Agar shart HAMMA qatorga mos kelsa, planner Seq Scan tanlaydi va HAQ
+-- bo'ladi — indeks bor bo'lishi uni ishlatish shart degani emas.
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 5) GIN — full-text qidiruv. Eng katta farq shu yerda ko'rinadi.
+-- ─────────────────────────────────────────────────────────────────────
+-- Avval INDEKSSIZ o'lchaymiz:
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT id FROM maqolalar
+WHERE to_tsvector('simple', sarlavha || ' ' || matn) @@ to_tsquery('simple', 'noyobatama');
+--  Parallel Seq Scan ...  Execution Time: 177.7 ms
+
+CREATE INDEX idx_m_fts ON maqolalar
+    USING GIN (to_tsvector('simple', sarlavha || ' ' || matn));
+ANALYZE maqolalar;
 
 EXPLAIN (ANALYZE, TIMING OFF)
-SELECT * FROM manzillar WHERE shahar = 'Margilon' AND viloyat = 'Fargona';
---  Seq Scan ... rows=19293 ... (actual rows=20000 loops=1)
---  Endi taxmin haqiqatga juda yaqin. Katta so'rovda bu noto'g'ri JOIN
---  turini tanlashning oldini oladi.
+SELECT id, sarlavha FROM maqolalar
+WHERE to_tsvector('simple', sarlavha || ' ' || matn) @@ to_tsquery('simple', 'noyobatama');
+--  Bitmap Heap Scan ...  Execution Time: 0.86 ms    <-- ~200 baravar tez
+-- DIQQAT: indeksdagi ifoda va WHERE dagi ifoda AYNAN bir xil bo'lishi shart.
 
 -- ─────────────────────────────────────────────────────────────────────
--- 9) JOIN turlari bitta rejada
+-- 6) COVERING indeks (INCLUDE) — qidiruvda qatnashmaydigan ustunni
+--    indeksga "yo'lovchi" sifatida qo'shish
 -- ─────────────────────────────────────────────────────────────────────
-DROP TABLE IF EXISTS mijozlar;
-CREATE TABLE mijozlar (id SERIAL PRIMARY KEY, ism VARCHAR(60) NOT NULL);
-INSERT INTO mijozlar (ism) SELECT 'Mijoz ' || g FROM generate_series(1, 5000) g;
-ANALYZE mijozlar;
+CREATE INDEX idx_m_cover ON maqolalar(muallif_id) INCLUDE (sarlavha);
+ANALYZE maqolalar;
 
--- Kam qator -> Nested Loop: tashqi tomondagi har qator uchun ichki
--- tomonda indeks bo'yicha qidiruv
-EXPLAIN (ANALYZE)
-SELECT m.ism, t.summa
-FROM mijozlar m JOIN tolovlar t ON t.mijoz_id = m.id
-WHERE m.id = 777;
+EXPLAIN (ANALYZE, TIMING OFF, BUFFERS)
+SELECT muallif_id, sarlavha FROM maqolalar WHERE muallif_id = 42;
+-- Eslatma: Index Only Scan olish uchun VACUUM ham kerak (4-darsga qarang).
+-- VACUUM siz reja Bitmap Heap Scan bo'lib qolaveradi.
 
--- Ko'p qator -> Hash Join: kichik jadvaldan xesh quriladi, katta jadval
--- bir marta o'tib chiqiladi
-EXPLAIN (ANALYZE)
-SELECT m.ism, SUM(t.summa)
-FROM mijozlar m JOIN tolovlar t ON t.mijoz_id = m.id
-GROUP BY m.ism;
+-- ─────────────────────────────────────────────────────────────────────
+-- 7) IFODA (expression) indeksi
+-- ─────────────────────────────────────────────────────────────────────
+CREATE INDEX idx_m_lower ON maqolalar(lower(sarlavha));
+ANALYZE maqolalar;
+
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT id FROM maqolalar WHERE lower(sarlavha) = 'maqola 999';
+--  Index Scan using idx_m_lower ... (actual rows=1 loops=1)
+--  Oddiy maqolalar(sarlavha) indeksi bu yerda ISHLAMAS edi.
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 8) BRIN — juda katta, jismonan tartiblangan jadvallar uchun
+-- ─────────────────────────────────────────────────────────────────────
+CREATE INDEX idx_m_brin ON maqolalar USING BRIN (sana);
+ANALYZE maqolalar;
+
+SELECT pg_size_pretty(pg_relation_size('idx_m_brin'))          AS brin_hajmi,
+       pg_size_pretty(pg_relation_size('idx_m_muallif_sana'))  AS btree_hajmi;
+--  brin_hajmi | btree_hajmi
+--  24 kB      | 6184 kB        <-- 250 baravar kichik
+-- Lekin BRIN faqat ma'lumot diskda tartiblangan bo'lsa foydali
+-- (masalan, faqat qo'shiladigan log jadvali).
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 9) Produksiyada: ishlatilmayotgan indekslarni topish
+--    (idx_scan real foydalanish statistikasi asosida to'ladi, shuning
+--     uchun bu so'rov ishlab turgan bazada ma'noga ega)
+-- ─────────────────────────────────────────────────────────────────────
+SELECT s.relname AS jadval, s.indexrelname AS indeks, s.idx_scan,
+       pg_size_pretty(pg_relation_size(s.indexrelid)) AS hajm
+FROM pg_stat_user_indexes s
+JOIN pg_index i ON i.indexrelid = s.indexrelid
+WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary
+ORDER BY pg_relation_size(s.indexrelid) DESC;
