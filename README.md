@@ -1,170 +1,182 @@
 -- ═══════════════════════════════════════════════════════════════════════
--- Indeks turlari: B-tree, kompozit, qisman, GIN, covering, BRIN
+-- N+1 muammosi: qanday paydo bo'ladi, qanday aniqlanadi, qanday tuzatiladi
 -- ═══════════════════════════════════════════════════════════════════════
 
-DROP TABLE IF EXISTS maqolalar;
+DROP TABLE IF EXISTS izohlar;
+DROP TABLE IF EXISTS teglar_bogi;
+DROP TABLE IF EXISTS postlar;
 
-CREATE TABLE maqolalar (
-    id         BIGSERIAL   PRIMARY KEY,
-    muallif_id INTEGER     NOT NULL,
-    sarlavha   TEXT        NOT NULL,
-    matn       TEXT        NOT NULL,
-    teglar     TEXT[]      NOT NULL DEFAULT '{}',
-    meta       JSONB       NOT NULL DEFAULT '{}',
-    holat      VARCHAR(20) NOT NULL,
-    sana       TIMESTAMPTZ NOT NULL
+CREATE TABLE postlar (
+    id       BIGSERIAL   PRIMARY KEY,
+    muallif  VARCHAR(60) NOT NULL,
+    sarlavha TEXT        NOT NULL,
+    sana     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE izohlar (
+    id      BIGSERIAL   PRIMARY KEY,
+    post_id BIGINT      NOT NULL REFERENCES postlar(id) ON DELETE CASCADE,
+    muallif VARCHAR(60) NOT NULL,
+    matn    TEXT        NOT NULL,
+    sana    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE TABLE teglar_bogi (
+    post_id BIGINT      NOT NULL REFERENCES postlar(id) ON DELETE CASCADE,
+    teg     VARCHAR(30) NOT NULL,
+    PRIMARY KEY (post_id, teg)
 );
 
-INSERT INTO maqolalar (muallif_id, sarlavha, matn, teglar, meta, holat, sana)
+INSERT INTO postlar (muallif, sarlavha)
+SELECT 'Muallif ' || (g % 50), 'Post ' || g FROM generate_series(1, 5000) g;
+
+INSERT INTO izohlar (post_id, muallif, matn)
+SELECT (random() * 4999)::INT + 1, 'Izohchi ' || (g % 200), 'Izoh matni ' || g
+FROM generate_series(1, 40000) g;
+
+INSERT INTO teglar_bogi (post_id, teg)
+SELECT DISTINCT (random() * 4999)::INT + 1,
+       (ARRAY['sql','python','web'])[(random() * 2)::INT + 1]
+FROM generate_series(1, 8000) g;
+
+-- 1-postga ATAYLAB aniq ma'lumot: 4 ta izoh va 3 ta teg (6-bo'lim uchun)
+DELETE FROM izohlar     WHERE post_id = 1;
+DELETE FROM teglar_bogi WHERE post_id = 1;
+INSERT INTO izohlar (post_id, muallif, matn) VALUES
+    (1, 'Aziz',    'Birinchi izoh'),
+    (1, 'Dilnoza', 'Ikkinchi izoh'),
+    (1, 'Sardor',  'Uchinchi izoh'),
+    (1, 'Nodira',  'To''rtinchi izoh');
+INSERT INTO teglar_bogi (post_id, teg) VALUES (1,'sql'), (1,'python'), (1,'web');
+
+CREATE INDEX idx_izohlar_post ON izohlar(post_id);
+ANALYZE postlar; ANALYZE izohlar; ANALYZE teglar_bogi;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 1) N+1 QANDAY KO'RINADI
+--    ORM kodi:  for post in Post.query.limit(20): print(post.izohlar)
+-- ─────────────────────────────────────────────────────────────────────
+-- 1-so'rov — postlar ro'yxati:
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT id, sarlavha FROM postlar ORDER BY id LIMIT 20;
+
+-- Keyin HAR BIR post uchun alohida so'rov. Bu yerda bittasi ko'rsatilgan,
+-- ilovada esa 20 tasi KETMA-KET ketadi:
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT * FROM izohlar WHERE post_id = 1;
+-- Har biri ~0.05 ms. Jami SQL ~1 ms. Lekin 21 marta tarmoq borib-kelishi
+-- (har biri 1-2 ms) => 40+ ms. Sekin so'rovlar jurnalida HECH NARSA yo'q.
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 2) Yechim A: bitta JOIN
+-- ─────────────────────────────────────────────────────────────────────
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT p.id, p.sarlavha, i.id AS izoh_id, i.matn
+FROM (SELECT id, sarlavha FROM postlar ORDER BY id LIMIT 20) p
+LEFT JOIN izohlar i ON i.post_id = p.id
+ORDER BY p.id, i.id;
+-- Kamchiligi: p.sarlavha har bir izoh qatorida takrorlanadi.
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 3) Yechim B: bitta batch so'rov (IN) — ORM dagi eager loading aynan shu
+-- ─────────────────────────────────────────────────────────────────────
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT * FROM izohlar
+WHERE post_id IN (SELECT id FROM postlar ORDER BY id LIMIT 20)
+ORDER BY post_id, id;
+-- 20 ta so'rov o'rniga 2 ta. Natijani kodda post_id bo'yicha guruhlaysiz.
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 4) Yechim C: jsonb_agg — API darhol ichma-ich JSON kutsa
+-- ─────────────────────────────────────────────────────────────────────
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT p.id, p.sarlavha,
+       COALESCE(
+           jsonb_agg(jsonb_build_object('id', i.id, 'matn', i.matn) ORDER BY i.id)
+               FILTER (WHERE i.id IS NOT NULL),
+           '[]'::jsonb
+       ) AS izohlar
+FROM (SELECT id, sarlavha FROM postlar ORDER BY id LIMIT 20) p
+LEFT JOIN izohlar i ON i.post_id = p.id
+GROUP BY p.id, p.sarlavha
+ORDER BY p.id;
+-- FILTER (WHERE i.id IS NOT NULL) muhim: usiz izohsiz post uchun
+-- massivda [{"id": null, "matn": null}] paydo bo'ladi.
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 5) Yechim D: LATERAL — har postdan faqat OXIRGI 3 izoh
+--    Bu masalani oddiy JOIN bilan yechib BO'LMAYDI: LIMIT butun
+--    natijaga qo'llanadi, har bir guruhga emas.
+-- ─────────────────────────────────────────────────────────────────────
+EXPLAIN (ANALYZE, TIMING OFF)
+SELECT p.id, p.sarlavha, i.id AS izoh_id, i.matn
+FROM (SELECT id, sarlavha FROM postlar ORDER BY id LIMIT 20) p
+LEFT JOIN LATERAL (
+    SELECT id, matn FROM izohlar
+    WHERE post_id = p.id           -- <-- LATERAL aynan shuni mumkin qiladi
+    ORDER BY id DESC
+    LIMIT 3
+) i ON TRUE
+ORDER BY p.id, i.id DESC;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 6) TUZOQ: ikkita 1:N jadvalni bir vaqtda qo'shish -> dekart ko'paytmasi
+-- ─────────────────────────────────────────────────────────────────────
+-- 1-postda 4 ta izoh va 3 ta teg bor. Haqiqiy sonlar:
+SELECT (SELECT COUNT(*) FROM izohlar     WHERE post_id = 1) AS izoh_soni,
+       (SELECT COUNT(*) FROM teglar_bogi WHERE post_id = 1) AS teg_soni;
+--  izoh_soni | teg_soni
+--          4 |        3
+
+-- Endi ikkalasini bitta so'rovda qo'shamiz:
+SELECT COUNT(*) AS notogri_qatorlar
+FROM postlar p
+LEFT JOIN izohlar i     ON i.post_id = p.id
+LEFT JOIN teglar_bogi t ON t.post_id = p.id
+WHERE p.id = 1;
+--  notogri_qatorlar
+--                12        <-- 4 * 3 = 12, ya'ni 4 emas!
+-- Endi COUNT(i.id) 12 deb YOLG'ON gapiradi va SUM ham xato bo'ladi.
+
+-- To'g'rilash 1: COUNT(DISTINCT ...) — to'g'ri, lekin saralash qo'shadi
+SELECT p.id,
+       COUNT(DISTINCT i.id)  AS izoh_soni,
+       COUNT(DISTINCT t.teg) AS teg_soni
+FROM postlar p
+LEFT JOIN izohlar i     ON i.post_id = p.id
+LEFT JOIN teglar_bogi t ON t.post_id = p.id
+WHERE p.id = 1
+GROUP BY p.id;
+
+-- To'g'rilash 2: umuman qo'shmasdan, alohida agregatlar (odatda tezroq)
+SELECT p.id,
+       (SELECT COUNT(*) FROM izohlar     WHERE post_id = p.id) AS izoh_soni,
+       (SELECT COUNT(*) FROM teglar_bogi WHERE post_id = p.id) AS teg_soni
+FROM postlar p WHERE p.id = 1;
+
+-- ─────────────────────────────────────────────────────────────────────
+-- 7) N+1 NI ANIQLASH — produksiyada
+-- ─────────────────────────────────────────────────────────────────────
+-- pg_stat_statements kengaytmasi orqali. DIQQAT: bu yerda SEKIN so'rovlar
+-- emas, KO'P CHAQIRILGAN so'rovlar qidiriladi — N+1 ning butun mohiyati shu.
+--
+--   SELECT calls,
+--          ROUND(mean_exec_time::NUMERIC, 3)          AS ortacha_ms,
+--          ROUND((calls * mean_exec_time)::NUMERIC, 1) AS jami_ms,
+--          LEFT(query, 80)                             AS sorov
+--   FROM pg_stat_statements
+--   ORDER BY calls DESC
+--   LIMIT 20;
+--
+-- Kengaytma o'rnatilganini tekshirish:
 SELECT
-    (random() * 500)::INT + 1,
-    'Maqola ' || g,
-    'PostgreSQL indekslari haqida matn ' || g
-      -- qatorlarning ~0.5% iga kamyob so'z qo'shamiz: full-text testi uchun
-      || CASE WHEN random() < 0.005 THEN ' noyobatama' ELSE '' END,
-    CASE (random() * 3)::INT
-        WHEN 0 THEN ARRAY['sql','backend']
-        WHEN 1 THEN ARRAY['python']
-        WHEN 2 THEN ARRAY['sql','performance']
-        ELSE        ARRAY['devops']
-    END,
-    jsonb_build_object(
-        'til',  (ARRAY['uz','ru','en'])[(random() * 2)::INT + 1],
-        'reja', CASE WHEN random() < 0.01 THEN 'pro' ELSE 'free' END,
-        'ko_rishlar', (random() * 1000)::INT
-    ),
-    CASE WHEN random() < 0.02 THEN 'qoralama' ELSE 'chop_etilgan' END,
-    NOW() - (random() * 700 || ' days')::INTERVAL
-FROM generate_series(1, 200000) g;
-ANALYZE maqolalar;
+    (SELECT COUNT(*) FROM pg_available_extensions WHERE name = 'pg_stat_statements') AS mavjud,
+    (SELECT COUNT(*) FROM pg_extension            WHERE extname = 'pg_stat_statements') AS ornatilgan;
+-- mavjud=1, ornatilgan=0 bo'lsa: postgresql.conf da
+-- shared_preload_libraries = 'pg_stat_statements' qo'shib, serverni
+-- qayta ishga tushirish va CREATE EXTENSION bajarish kerak.
 
--- ─────────────────────────────────────────────────────────────────────
--- 1) KOMPOZIT INDEKS — ustunlar tartibi hal qiluvchi
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_muallif_sana ON maqolalar(muallif_id, sana);
-ANALYZE maqolalar;
-
--- (a) Ikkala ustun ham shartda -> indeks to'liq ishlaydi
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT * FROM maqolalar WHERE muallif_id = 42 AND sana > NOW() - INTERVAL '30 days';
---  ->  Bitmap Index Scan on idx_m_muallif_sana  (cost=0.00..4.59 ...)
-
--- (b) Faqat BIRINCHI ustun (chapdan prefiks) -> ishlaydi
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT * FROM maqolalar WHERE muallif_id = 42;
---  ->  Bitmap Index Scan on idx_m_muallif_sana  (cost=0.00..11.40 ...)
-
--- (c) Faqat IKKINCHI ustun -> indeks BOSHDAN-OXIR skanerlanadi
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT * FROM maqolalar WHERE sana > NOW() - INTERVAL '3 days';
---  ->  Bitmap Index Scan on idx_m_muallif_sana  (cost=0.00..4592.43 ...)
---                                                        ^^^^^^^
---  Narxni (a) dagi 4.59 bilan solishtiring — 1000 baravar farq.
---  Rejada "Index Scan" so'zi bo'lishi hali hammasi joyida degani emas.
-
--- ─────────────────────────────────────────────────────────────────────
--- 2) QISMAN (PARTIAL) INDEKS — faqat kerakli qatorlar uchun
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_qoralama ON maqolalar(muallif_id) WHERE holat = 'qoralama';
-ANALYZE maqolalar;
-
-EXPLAIN (ANALYZE, TIMING OFF, BUFFERS)
-SELECT * FROM maqolalar WHERE holat = 'qoralama' AND muallif_id = 42;
---  ->  Bitmap Index Scan on idx_m_qoralama  (cost=0.00..4.34 ...)
-
--- Hajmlarni solishtiramiz:
-SELECT pg_size_pretty(pg_relation_size('idx_m_muallif_sana')) AS toliq_indeks,
-       pg_size_pretty(pg_relation_size('idx_m_qoralama'))     AS qisman_indeks;
---  toliq_indeks | qisman_indeks
---  6184 kB      | 56 kB          <-- 110 baravar kichik
-
--- ─────────────────────────────────────────────────────────────────────
--- 3) GIN — massiv ichidagi qiymat bo'yicha qidiruv
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_teglar ON maqolalar USING GIN (teglar);
-ANALYZE maqolalar;
-
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT id, sarlavha FROM maqolalar WHERE teglar @> ARRAY['devops'];
---  ->  Bitmap Index Scan on idx_m_teglar ... rows=33518
-
--- ─────────────────────────────────────────────────────────────────────
--- 4) GIN — jsonb. jsonb_path_ops kichikroq va @> uchun tezroq.
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_meta ON maqolalar USING GIN (meta jsonb_path_ops);
-ANALYZE maqolalar;
-
--- TANLANUVCHAN shart (~1% qator) -> indeks ishlaydi
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT id FROM maqolalar WHERE meta @> '{"reja":"pro"}';
---  ->  Bitmap Index Scan on idx_m_meta ... rows=1964,  Execution Time: 1.6 ms
-
--- Agar shart HAMMA qatorga mos kelsa, planner Seq Scan tanlaydi va HAQ
--- bo'ladi — indeks bor bo'lishi uni ishlatish shart degani emas.
-
--- ─────────────────────────────────────────────────────────────────────
--- 5) GIN — full-text qidiruv. Eng katta farq shu yerda ko'rinadi.
--- ─────────────────────────────────────────────────────────────────────
--- Avval INDEKSSIZ o'lchaymiz:
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT id FROM maqolalar
-WHERE to_tsvector('simple', sarlavha || ' ' || matn) @@ to_tsquery('simple', 'noyobatama');
---  Parallel Seq Scan ...  Execution Time: 177.7 ms
-
-CREATE INDEX idx_m_fts ON maqolalar
-    USING GIN (to_tsvector('simple', sarlavha || ' ' || matn));
-ANALYZE maqolalar;
-
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT id, sarlavha FROM maqolalar
-WHERE to_tsvector('simple', sarlavha || ' ' || matn) @@ to_tsquery('simple', 'noyobatama');
---  Bitmap Heap Scan ...  Execution Time: 0.86 ms    <-- ~200 baravar tez
--- DIQQAT: indeksdagi ifoda va WHERE dagi ifoda AYNAN bir xil bo'lishi shart.
-
--- ─────────────────────────────────────────────────────────────────────
--- 6) COVERING indeks (INCLUDE) — qidiruvda qatnashmaydigan ustunni
---    indeksga "yo'lovchi" sifatida qo'shish
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_cover ON maqolalar(muallif_id) INCLUDE (sarlavha);
-ANALYZE maqolalar;
-
-EXPLAIN (ANALYZE, TIMING OFF, BUFFERS)
-SELECT muallif_id, sarlavha FROM maqolalar WHERE muallif_id = 42;
--- Eslatma: Index Only Scan olish uchun VACUUM ham kerak (4-darsga qarang).
--- VACUUM siz reja Bitmap Heap Scan bo'lib qolaveradi.
-
--- ─────────────────────────────────────────────────────────────────────
--- 7) IFODA (expression) indeksi
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_lower ON maqolalar(lower(sarlavha));
-ANALYZE maqolalar;
-
-EXPLAIN (ANALYZE, TIMING OFF)
-SELECT id FROM maqolalar WHERE lower(sarlavha) = 'maqola 999';
---  Index Scan using idx_m_lower ... (actual rows=1 loops=1)
---  Oddiy maqolalar(sarlavha) indeksi bu yerda ISHLAMAS edi.
-
--- ─────────────────────────────────────────────────────────────────────
--- 8) BRIN — juda katta, jismonan tartiblangan jadvallar uchun
--- ─────────────────────────────────────────────────────────────────────
-CREATE INDEX idx_m_brin ON maqolalar USING BRIN (sana);
-ANALYZE maqolalar;
-
-SELECT pg_size_pretty(pg_relation_size('idx_m_brin'))          AS brin_hajmi,
-       pg_size_pretty(pg_relation_size('idx_m_muallif_sana'))  AS btree_hajmi;
---  brin_hajmi | btree_hajmi
---  24 kB      | 6184 kB        <-- 250 baravar kichik
--- Lekin BRIN faqat ma'lumot diskda tartiblangan bo'lsa foydali
--- (masalan, faqat qo'shiladigan log jadvali).
-
--- ─────────────────────────────────────────────────────────────────────
--- 9) Produksiyada: ishlatilmayotgan indekslarni topish
---    (idx_scan real foydalanish statistikasi asosida to'ladi, shuning
---     uchun bu so'rov ishlab turgan bazada ma'noga ega)
--- ─────────────────────────────────────────────────────────────────────
-SELECT s.relname AS jadval, s.indexrelname AS indeks, s.idx_scan,
-       pg_size_pretty(pg_relation_size(s.indexrelid)) AS hajm
-FROM pg_stat_user_indexes s
-JOIN pg_index i ON i.indexrelid = s.indexrelid
-WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary
-ORDER BY pg_relation_size(s.indexrelid) DESC;
+-- Jadval darajasidagi belgi: seq_scan juda ko'p bo'lsa ham N+1 dan darak
+SELECT relname, seq_scan, idx_scan, n_live_tup
+FROM pg_stat_user_tables
+WHERE n_live_tup > 1000
+ORDER BY seq_scan DESC
+LIMIT 10;
