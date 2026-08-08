@@ -1,167 +1,186 @@
--- ═══════════════════════════════════════════════════════════════════════
--- Qulflar (locks), SKIP LOCKED navbati va deadlock
--- ═══════════════════════════════════════════════════════════════════════
+Ushbu talablarga to‘liq javob beradigan Flask dasturining to‘liq kodi va fayllar strukturasi quyidagicha.
 
-DROP TABLE IF EXISTS navbat;
-DROP TABLE IF EXISTS hisoblar;
+📁 Loyiha strukturasi
+Plaintext
+my_flask_app/
+├── app.py
+├── static/
+│   └── style.css
+└── templates/
+    └── index.html
+1. Backend (app.py)
+Python va Flask yordamida yozilgan asosiy fayl. Unda kamida 8 ta mahsulot ro'yxati va GET so'rovini qabul qilib, kichik/katta harf farqlamaydigan (case-insensitive) qidiruv logikasi yozilgan.
 
-CREATE TABLE hisoblar (
-    id     SERIAL        PRIMARY KEY,
-    egasi  VARCHAR(40)   NOT NULL,
-    balans NUMERIC(12,2) NOT NULL CHECK (balans >= 0)
-);
-INSERT INTO hisoblar (egasi, balans) VALUES
-    ('Aziz', 1000000), ('Dilnoza', 500000), ('Sardor', 300000);
+Python
+from flask import Flask, render_template, request
 
--- ─────────────────────────────────────────────────────────────────────
--- 1) FOR UPDATE — o'qib-o'zgartirish naqshini himoyalash
--- ─────────────────────────────────────────────────────────────────────
-BEGIN;
-    -- Bu qator endi tranzaksiya oxirigacha BAND. Boshqa sessiya uni
-    -- o'zgartirmoqchi bo'lsa — kutadi.
-    SELECT id, egasi, balans FROM hisoblar WHERE id = 1 FOR UPDATE;
-    UPDATE hisoblar SET balans = balans - 100000 WHERE id = 1;
-COMMIT;
+app = Flask(__name__)
 
--- Eslatma: agar hisob-kitob bazaning o'zida bajarilsa, FOR UPDATE
--- umuman kerak emas — UPDATE qatorni o'zi qulflaydi va qiymatni
--- ATOMAR o'qib-yozadi:
---     UPDATE hisoblar SET balans = balans - 100000 WHERE id = 1;
--- Bu "lost update" ga qarshi eng oddiy va eng ishonchli himoya.
+# Kamida 8 ta mahsulotdan iborat Python ro'yxati
+products = [
+    "Smartfon Samsung Galaxy S26 Ultra",
+    "Noutbuk Apple MacBook Pro",
+    "Quloqchin AirPods Pro",
+    "Aqlli soat Smart Watch",
+    "Planshet iPad Air",
+    "Gaming Klaviatura RGB",
+    "Sichqoncha Wireless Mouse",
+    "Monitor 27 dyuym 4K",
+    "Portativ Kolonka JBL",
+    "Fleshka 128GB USB 3.0"
+]
 
--- ─────────────────────────────────────────────────────────────────────
--- 2) Qulf turlari (kuchlidan kuchsizga)
--- ─────────────────────────────────────────────────────────────────────
-BEGIN;
-    SELECT id FROM hisoblar WHERE id = 1 FOR UPDATE;        -- eng kuchli
-    SELECT id FROM hisoblar WHERE id = 2 FOR NO KEY UPDATE; -- UPDATE shuni oladi
-    SELECT id FROM hisoblar WHERE id = 3 FOR SHARE;         -- o'zgartirishni bloklaydi
-    SELECT id FROM hisoblar WHERE id = 3 FOR KEY SHARE;     -- FK tekshiruvi shuni oladi
-COMMIT;
+@app.route('/')
+def index():
+    # GET formadan 'q' parametrini olish
+    query = request.args.get('q', '').strip()
+    
+    if query:
+        # Katta va kichik harflarni farqlamasdan filtrlash
+        filtered_products = [p for p in products if query.lower() in p.lower()]
+    else:
+        # Agar qidiruv bo'sh bo'lsa, barcha mahsulotlarni chiqarish (yoki bo'sh qoldirish mumkin)
+        filtered_products = products
+        
+    return render_template('index.html', products=filtered_products, query=query)
 
--- ─────────────────────────────────────────────────────────────────────
--- 3) NOWAIT — kutish o'rniga darhol xato
--- ─────────────────────────────────────────────────────────────────────
-BEGIN;
-    SELECT id FROM hisoblar WHERE id = 1 FOR UPDATE NOWAIT;
-    -- Qator band bo'lsa:
-    --   ERROR:  could not obtain lock on row in relation "hisoblar"
-    -- Interaktiv ilovada "yozuv band, keyinroq urinib ko'ring" uchun qulay.
-COMMIT;
+if __name__ == '__main__':
+    app.run(debug=True)
+2. Frontend shabloni (templates/index.html)
+GET metodiga ega forma va natijalarni ro'yxat ko'rinishida chiqaruvchi HTML fayl.
 
--- ─────────────────────────────────────────────────────────────────────
--- 4) SKIP LOCKED — ko'p ishchili navbat (Celery/Sidekiq ning SQL asosi)
--- ─────────────────────────────────────────────────────────────────────
-CREATE TABLE navbat (
-    id      BIGSERIAL   PRIMARY KEY,
-    vazifa  TEXT        NOT NULL,
-    holat   VARCHAR(20) NOT NULL DEFAULT 'kutmoqda',
-    olingan TIMESTAMPTZ
-);
-INSERT INTO navbat (vazifa) SELECT 'Vazifa ' || g FROM generate_series(1, 10) g;
+HTML
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <title>Mahsulot Qidiruvi</title>
+    <!-- static/style.css ni url_for orqali ulash -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Mahsulot Qidirish</h1>
+        
+        <!-- GET metodi orqali ishlaydigan forma -->
+        <form method="GET" action="/" class="search-form">
+            <input type="text" name="q" value="{{ query }}" placeholder="Mahsulot nomini kiriting...">
+            <button type="submit">Qidirish</button>
+        </form>
 
--- Qisman indeks: faqat kutayotgan vazifalar indekslanadi (5-darsga qarang)
-CREATE INDEX idx_navbat_holat ON navbat(holat, id) WHERE holat = 'kutmoqda';
+        <div class="results">
+            {% if products %}
+                <h2>Qidiruv natijalari:</h2>
+                <ul>
+                    {% for product in products %}
+                        <li>{{ product }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <!-- Bo'sh natija holati -->
+                <p class="not-found">Hech narsa topilmadi</p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>
+3. Stil fayli (static/style.css)
+Sahifani chiroyli ko'rinishga keltirish uchun CSS kodi.
 
--- Har bir ishchi shu so'rovni bajaradi. SKIP LOCKED tufayli ular
--- BIR-BIRINI KUTMAYDI: 2-ishchi 1-ishchi olgan qatorlarni sakrab o'tadi.
-BEGIN;
-    WITH keyingi AS (
-        SELECT id FROM navbat
-        WHERE holat = 'kutmoqda'
-        ORDER BY id
-        FOR UPDATE SKIP LOCKED
-        LIMIT 3
-    )
-    UPDATE navbat n
-    SET holat = 'bajarilmoqda', olingan = NOW()
-    FROM keyingi k
-    WHERE n.id = k.id
-    RETURNING n.id, n.vazifa;
-COMMIT;
+CSS
+body {
+    font-family: Arial, sans-serif;
+    background-color: #f4f7f6;
+    margin: 0;
+    padding: 50px;
+    display: flex;
+    justify-content: center;
+}
 
-SELECT holat, COUNT(*) FROM navbat GROUP BY holat ORDER BY holat;
---  bajarilmoqda | 3
---  kutmoqda     | 7
+.container {
+    background: #ffffff;
+    padding: 30px;
+    border-radius: 10px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    width: 450px;
+}
 
--- ─────────────────────────────────────────────────────────────────────
--- 5) lock_timeout — cheksiz kutmaslik
--- ─────────────────────────────────────────────────────────────────────
-BEGIN;
-    SET LOCAL lock_timeout = '3s';   -- LOCAL: faqat shu tranzaksiya uchun
-    SELECT id FROM hisoblar WHERE id = 1 FOR UPDATE;
-    -- 3 sekunddan keyin ham qulf olinmasa:
-    --   ERROR:  canceling statement due to lock timeout
-COMMIT;
+h1 {
+    text-align: center;
+    color: #333;
+    margin-bottom: 25px;
+}
 
--- ─────────────────────────────────────────────────────────────────────
--- 6) DEADLOCK — ikki sessiyada takrorlanadigan ssenariy
---    Ikki psql oynasini oching va quyidagilarni PARALLEL bajaring:
--- ─────────────────────────────────────────────────────────────────────
---   Sessiya A                               Sessiya B
---   -----------------------------------     -----------------------------------
---   BEGIN;                                  BEGIN;
---   UPDATE hisoblar SET balans=balans-100    UPDATE hisoblar SET balans=balans-50
---     WHERE id = 1;   -- 1-qator qulflandi     WHERE id = 2;   -- 2-qator qulflandi
---   SELECT pg_sleep(2);                      SELECT pg_sleep(2);
---   UPDATE hisoblar SET balans=balans+100    UPDATE hisoblar SET balans=balans+50
---     WHERE id = 2;   -- B ni kutadi           WHERE id = 1;   -- A ni kutadi
---                          \_______ HALQA _______/
---   COMMIT;                                  <-- BU YERDA XATO:
---
---   ERROR:  deadlock detected
---   DETAIL:  Process 1023893 waits for ShareLock on transaction 13418187;
---            blocked by process 1023894.
---            Process 1023894 waits for ShareLock on transaction 13418186;
---            blocked by process 1023893.
---   HINT:  See server log for query details.
---   CONTEXT:  while updating tuple (0,1) in relation "hisoblar"
---
---   Diqqat: FAQAT BITTA sessiya qurbon bo'ldi (B), A esa normal COMMIT bo'ldi.
+.search-form {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 25px;
+}
 
-SHOW deadlock_timeout;
---  1s  <-- PostgreSQL shuncha kutgandan keyingina halqa qidiradi.
---          Tekshiruv qimmat, shuning uchun u darhol bajarilmaydi.
+.search-form input {
+    flex: 1;
+    padding: 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    outline: none;
+    font-size: 14px;
+}
 
--- ─────────────────────────────────────────────────────────────────────
--- 7) DEADLOCK OLDINI OLISH: har doim BIR XIL tartibda qulflash
---    Bu eng ishonchli usul — halqa matematik jihatdan hosil bo'lolmaydi.
--- ─────────────────────────────────────────────────────────────────────
-BEGIN;
-    SELECT id, egasi FROM hisoblar
-    WHERE id IN (1, 2)
-    ORDER BY id            -- <<< ENG MUHIM QATOR
-    FOR UPDATE;
-    -- Endi ikkala qator ham qulflangan va TARTIB kafolatlangan.
-    UPDATE hisoblar SET balans = balans - 100 WHERE id = 1;
-    UPDATE hisoblar SET balans = balans + 100 WHERE id = 2;
-COMMIT;
+.search-form input:focus {
+    border-color: #007bff;
+}
 
-SELECT * FROM hisoblar ORDER BY id;
+.search-form button {
+    padding: 12px 20px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
 
--- ─────────────────────────────────────────────────────────────────────
--- 8) DIAGNOSTIKA: kim kimni bloklayapti (produksiyada)
--- ─────────────────────────────────────────────────────────────────────
-SELECT pid,
-       state,
-       wait_event_type,
-       pg_blocking_pids(pid) AS bloklovchilar,   -- bo'sh massiv = bloklanmagan
-       LEFT(query, 60)       AS sorov
-FROM pg_stat_activity
-WHERE datname = current_database()
-  AND pid <> pg_backend_pid()
-ORDER BY pid;
+.search-form button:hover {
+    background-color: #0056b3;
+}
 
--- Aniq qulflar ro'yxati:
-SELECT locktype, relation::regclass AS jadval, mode, granted
-FROM pg_locks
-WHERE relation IS NOT NULL
-ORDER BY granted, relation
-LIMIT 20;
+.results h2 {
+    font-size: 16px;
+    color: #555;
+    margin-bottom: 10px;
+}
 
--- Uzoq ishlayotgan tranzaksiyalar — deadlock va bloklanishning asosiy sababi:
-SELECT pid, NOW() - xact_start AS davomiylik, state, LEFT(query, 60) AS sorov
-FROM pg_stat_activity
-WHERE xact_start IS NOT NULL
-  AND NOW() - xact_start > INTERVAL '5 seconds'
-ORDER BY xact_start;
+.results ul {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
+}
+
+.results li {
+    background: #f9f9f9;
+    margin-bottom: 8px;
+    padding: 12px;
+    border-left: 4px solid #007bff;
+    border-radius: 4px;
+    color: #333;
+    font-size: 14px;
+}
+
+.not-found {
+    color: #ff4d4d;
+    text-align: center;
+    font-weight: bold;
+    font-size: 16px;
+    margin-top: 20px;
+}
+🚀 Ishga tushirish uchun:
+Kompyuteringizda Flask o'rnatilganligiga ishonch hosil qiling (pip install flask).
+
+Yuqoridagi papka strukturasini tuzing va kodlarni tegishli fayllarga joylashtiring.
+
+Terminalda quyidagi buyruqni bajaring:
+
+Bash
+python app.py
+Brauzerni ochib [http://127.0.0.1:5000/](http://127.0.0.1:5000/) manziliga kiring.
