@@ -1,255 +1,182 @@
 -- ============================================================================
--- AMALIY LOYIHA: SEKIN SO'ROVNI DIAGNOSTIKA QILISH VA TUZATISH
+-- AMALIY TOPSHIRIQ: HODISALAR JADVALINI BO'LISH VA ARXIVLASH STRATEGIYASI
 -- Texnologiya: PostgreSQL
 -- ============================================================================
 
--- 1. SXEMA VA TEST MA'LUMOTLARINI YARATISH
--- ============================================================================
-DROP TABLE IF EXISTS buyurtmalar CASCADE;
-DROP TABLE IF EXISTS mijozlar CASCADE;
-
-CREATE TABLE mijozlar (
-    id SERIAL PRIMARY KEY,
-    ism VARCHAR(100),
-    email VARCHAR(150),
-    royxatdan_otgan TIMESTAMP
-);
-
-CREATE TABLE buyurtmalar (
-    id SERIAL PRIMARY KEY,
-    mijoz_id INT REFERENCES mijozlar(id),
-    summa NUMERIC(10, 2),
-    holat VARCHAR(50),
-    sana TIMESTAMP
-);
-
--- Test ma'lumotlarini kiritish (100,000 mijoz va 2,000,000 buyurtma)
-INSERT INTO mijozlar (ism, email, royxatdan_otgan)
-SELECT 
-    'Mijoz_' || i,
-    CASE 
-        WHEN i % 3 = 0 THEN 'user' || i || '@gmail.com'
-        WHEN i % 3 = 1 THEN 'test' || i || '@yahoo.com'
-        ELSE 'client' || i || '@MAIL.RU'
-    END,
-    NOW() - (random() * INTERVAL '5 years')
-FROM generate_series(1, 100000) AS i;
-
-INSERT INTO buyurtmalar (mijoz_id, summa, holat, sana)
-SELECT 
-    (random() * 99999 + 1)::INT,
-    (random() * 500000 + 1000)::NUMERIC(10,2),
-    CASE (random() * 3)::INT 
-        WHEN 0 THEN 'tolangan' 
-        WHEN 1 THEN 'kutilmoqda' 
-        ELSE 'bekor_qilingan' 
-    END,
-    NOW() - (random() * INTERVAL '2 years')
-FROM generate_series(1, 2000000) AS i;
-
-ANALYZE mijozlar;
-ANALYZE buyurtmalar;
-
 
 -- ============================================================================
--- 2. BOSHLANG'ICH O'LCHOV (ASL SO'ROV)
--- ============================================================================
--- Muammolar: 
--- 1. EXTRACT(YEAR FROM royxatdan_otgan) va LOWER(email) funksiyalari indeksdan foydalanishga to'sqinlik qiladi (Sequential Scan).
--- 2. LIKE '%@gmail.com' old qismida foiz (%) ishlatilgani uchun B-tree indeksni ishlata olmaydi.
--- 3. Har bir qator uchun 3 tadan korrelyatsiyali subquery (COUNT, SUM, MAX) bajariladi.
--- 4. OFFSET 4000 LIMIT 20 katta hajmdagi ma'lumotni o'tkazib yuborishni talab qiladi.
-
-EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT 
-    m.id, m.ism, m.email, 
-    (SELECT COUNT(*) FROM buyurtmalar b1 WHERE b1.mijoz_id = m.id) AS buyurtmalar_soni, 
-    (SELECT SUM(b2.summa) FROM buyurtmalar b2 WHERE b2.mijoz_id = m.id AND b2.holat = 'tolangan') AS jami_tolov, 
-    (SELECT MAX(b3.sana) FROM buyurtmalar b3 WHERE b3.mijoz_id = m.id) AS oxirgi_buyurtma 
-FROM mijozlar m 
-WHERE EXTRACT(YEAR FROM m.royxatdan_otgan) = 2024 
-  AND LOWER(m.email) LIKE '%@gmail.com' 
-ORDER BY jami_tolov DESC NULLS LAST 
-OFFSET 4000 LIMIT 20;
-
-
--- ============================================================================
--- 3. 1-TUZATISH: KORRELYATSIYali SUBQUERY'LARNI JOIN (GROUP BY) BILAN ALMASHTIRISH
--- ============================================================================
--- Asos: Subquery har bir mijoz uchun alohida jadvalni qaytadan skanerlaydi (N+1 muammosi). 
--- Buni LEFT JOIN va AGGREGATE (GROUP BY) ga o'tkazish orqali barcha buyurtmalar bir martada guruhlanadi.
-
-EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT 
-    m.id, 
-    m.ism, 
-    m.email, 
-    COUNT(b.id) AS buyurtmalar_soni,
-    SUM(CASE WHEN b.holat = 'tolangan' THEN b.summa ELSE 0 END) AS jami_tolov,
-    MAX(b.sana) AS oxirgi_buyurtma
-FROM mijozlar m
-LEFT JOIN buyurtmalar b ON b.mijoz_id = m.id
-WHERE EXTRACT(YEAR FROM m.royxatdan_otgan) = 2024 
-  AND LOWER(m.email) LIKE '%@gmail.com'
-GROUP BY m.id, m.ism, m.email
-ORDER BY jami_tolov DESC NULLS LAST 
-OFFSET 4000 LIMIT 20;
-
-
--- ============================================================================
--- 4. 2-TUZATISH: FUNKSIYALARNI OLIB TASHLASH VA RANGE (ORALIQ) SHARTIGA O'TISH
--- ============================================================================
--- Asos: EXTRACT(YEAR FROM royxatdan_otgan) = 2024 o'rniga '2024-01-01' <= royxatdan_otgan < '2025-01-01' 
--- ishlatish va LOWER(email) LIKE ... o'rniga to'g'ridan-to'g'ri mos keluvchi shart kiritish 
--- (yoki funksional indeks uchun zamin yaratish). Hozircha faqat sana oralig'ini to'g'rilaymiz.
-
-EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT 
-    m.id, 
-    m.ism, 
-    m.email, 
-    COUNT(b.id) AS buyurtmalar_soni,
-    SUM(CASE WHEN b.holat = 'tolangan' THEN b.summa ELSE 0 END) AS jami_tolov,
-    MAX(b.sana) AS oxirgi_buyurtma
-FROM mijozlar m
-LEFT JOIN buyurtmalar b ON b.mijoz_id = m.id
-WHERE m.royxatdan_otgan >= '2024-01-01' 
-  AND m.royxatdan_otgan < '2025-01-01'
-  AND m.email LIKE '%@gmail.com'
-GROUP BY m.id, m.ism, m.email
-ORDER BY jami_tolov DESC NULLS LAST 
-OFFSET 4000 LIMIT 20;
-
-
--- ============================================================================
--- 5. 3-TUZATISH: INDEX QO'SHISH (MIJOZLAR VA BUYURTMALAR UCHUN)
--- ============================================================================
--- Asos: 
--- 1. mijozlar(royxatdan_otgan) — sana bo'yicha qidiruvni tezlashtiradi.
--- 2. buyurtmalar(mijoz_id, holat) — JOIN va SUM amallarini Index Scan orqali bajarishga yordam beradi.
-
-CREATE INDEX idx_mijozlar_royxatdan ON mijozlar(royxatdan_otgan);
-CREATE INDEX idx_buyurtmalar_mijoz_holat ON buyurtmalar(mijoz_id, holat);
-
-ANALYZE mijozlar;
-ANALYZE buyurtmalar;
-
-EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-SELECT 
-    m.id, 
-    m.ism, 
-    m.email, 
-    COUNT(b.id) AS buyurtmalar_soni,
-    SUM(CASE WHEN b.holat = 'tolangan' THEN b.summa ELSE 0 END) AS jami_tolov,
-    MAX(b.sana) AS oxirgi_buyurtma
-FROM mijozlar m
-LEFT JOIN buyurtmalar b ON b.mijoz_id = m.id
-WHERE m.royxatdan_otgan >= '2024-01-01' 
-  AND m.royxatdan_otgan < '2025-01-01'
-  AND m.email LIKE '%@gmail.com'
-GROUP BY m.id, m.ism, m.email
-ORDER BY jami_tolov DESC NULLS LAST 
-OFFSET 4000 LIMIT 20;
-
-
--- ============================================================================
--- 6. 4-TUZATISH: PAGINATION (OFFSET 4000) MUAMMOSINI KURSOR (KEYSAYT) USULIGA ALMASHTIRISH 
--- YOKI CTE / SUBQUERY ORQALI AGGREGATSIyani OLDIN REJALASHTIRISH
--- ============================================================================
--- Asos: OFFSET katta bo'lganda PostgreSQL barcha 4000 ta qatorni o'tkazib yuborish uchun 
--- baribir ularni saralab chiqishi kerak. Eng yaxshi yechim - avval shart bo'yicha mijozlarni 
--- tanlab, keyin agregatsiya qilish yoki keyset pagination ishlatish. 
--- Keling, optimallashtirilgan CTE yondashuvini qo'llaymiz.
-
-EXPLAIN (ANALYZE, BUFFERS, FORMAT TEXT)
-WITH filt_mijozlar AS (
-    SELECT id, ism, email
-    FROM mijozlar
-    WHERE royxatdan_otgan >= '2024-01-01' 
-      AND royxatdan_otgan < '2025-01-01'
-      AND email LIKE '%@gmail.com'
-)
-SELECT 
-    m.id, 
-    m.ism, 
-    m.email, 
-    COUNT(b.id) AS buyurtmalar_soni,
-    SUM(CASE WHEN b.holat = 'tolangan' THEN b.summa ELSE 0 END) AS jami_tolov,
-    MAX(b.sana) AS oxirgi_buyurtma
-FROM filt_mijozlar m
-LEFT JOIN buyurtmalar b ON b.mijoz_id = m.id
-GROUP BY m.id, m.ism, m.email
-ORDER BY jami_tolov DESC NULLS LAST 
-OFFSET 4000 LIMIT 20;
-
-
--- ============================================================================
--- 7. INDEKS HAJMLarini TEKSHIRISH (pg_relation_size)
--- ============================================================================
-SELECT 
-    relname AS indeks_nomi,
-    pg_size_pretty(pg_relation_size(oid)) AS hajm
-FROM pg_class
-WHERE relname IN ('idx_mijozlar_royxatdan', 'idx_buyurtmalar_mijoz_holat');
-
-
--- ============================================================================
--- 8. NATIJALARNING TO'G'riligini TEKSHIRISH (EXCEPT BILAN)
--- ============================================================================
--- Eslatma: Asl so'rov juda sekin ishlagani uchun uni LIMIT bilan solishtirish mumkin 
--- yoki natijalar qatorlari mos kelishini tekshiramiz.
-
-WITH asl_natija AS (
-    SELECT 
-        m.id, m.ism, m.email, 
-        (SELECT COUNT(*) FROM buyurtmalar b1 WHERE b1.mijoz_id = m.id) AS b_soni, 
-        (SELECT SUM(b2.summa) FROM buyurtmalar b2 WHERE b2.mijoz_id = m.id AND b2.holat = 'tolangan') AS j_tolov, 
-        (SELECT MAX(b3.sana) FROM buyurtmalar b3 WHERE b3.mijoz_id = m.id) AS o_sana 
-    FROM mijozlar m 
-    WHERE EXTRACT(YEAR FROM m.royxatdan_otgan) = 2024 
-      AND LOWER(m.email) LIKE '%@gmail.com' 
-    ORDER BY j_tolov DESC NULLS LAST 
-    LIMIT 50
-),
-yangi_natija AS (
-    WITH filt_mijozlar AS (
-        SELECT id, ism, email FROM mijozlar
-        WHERE royxatdan_otgan >= '2024-01-01' AND royxatdan_otgan < '2025-01-01' AND email LIKE '%@gmail.com'
-    )
-    SELECT 
-        m.id, m.ism, m.email, 
-        COUNT(b.id) AS b_soni,
-        SUM(CASE WHEN b.holat = 'tolangan' THEN b.summa ELSE 0 END) AS j_tolov,
-        MAX(b.sana) AS o_sana
-    FROM filt_mijozlar m
-    LEFT JOIN buyurtmalar b ON b.mijoz_id = m.id
-    GROUP BY m.id, m.ism, m.email
-    ORDER BY j_tolov DESC NULLS LAST 
-    LIMIT 50
-)
-SELECT * FROM asl_natija
-EXCEPT
-SELECT * FROM yangi_natija;
--- Agar natija bo'sh (0 qator) qaytsa, demak logika 100% bir xil ishlayapti.
-
-
--- ============================================================================
--- 9. YAKUNIY HISOBOT JADVALI
+-- 1. YOZMA QAROR (STRATEGIYA TANLOVI VA ASOSLASH)
 -- ============================================================================
 /*
-| Nima o'zgardi | Reja qanday o'zgardi | Vaqt oldin -> Keyin | Buferlar oldin -> Keyin |
-| :--- | :--- | :--- | :--- |
-| **0. Boshlang'ich holat** | Seq Scan, Nested Subqueries, No Index | ~1200 ms | ~45,000 buffers |
-| **1. Subquery -> LEFT JOIN** | Nested Loop o'rniga Hash Left Join ishlatila boshlandi | ~450 ms -> ~300 ms | ~15,000 buffers |
-| **2. Funksiyadan voz kechish** | Range condition (`>=` va `<`) qo'shildi | ~250 ms | ~8,000 buffers |
-| **3. Indekslar qo'shish** | Seq Scan dan Index Scan ga o'tdi | ~80 ms | ~1,200 buffers |
-| **4. CTE orqali filtrlash** | Avval mijozlar saralanib, keyin JOIN qilindi | ~15-30 ms | ~400 buffers |
+QAROR: RANGE bo'yicha bo'lish (Partitioning) tanlanadi.
+ASOS:
+- Telemetriya jurnali va vaqt qatorlari (time-series) ma'lumotlari uchun vaqt/sana (timestamp) 
+  eng tabiiy o'lcham hisoblanadi. So'rovlarning 95% i oxirgi 30 kunlik sana diapazoni bo'yicha 
+  filtrlashini hisobga olsak, RANGE partition PostgreSQL'ga kerak emas bo'limlarni butunlay 
+  chetlab o'tishga (Partition Pruning) imkon beradi. 12 oydan eski ma'lumotlarni oylik 
+  bo'limlarga ajratib, ularni osongina DETACH qilish va arxivlash mumkin.
+
+QOLGAN IKKI STRATEGIYA NEGA MOS EMAS?
+1. LIST: Agar ma'lumotlar aniq bir kategoriya (masalan, mamlakat, status yoki tenant_id) 
+   bo'yicha guruhlanganda mos kelardi. Vaqt bo'yicha uzluksiz o'sib boruvchi telemetriya 
+   jurnali uchun LIST bo'yicha bo'lish mantiqsiz, chunki har bir vaqt oralig'i uchun yangi 
+   qiymatlarni oldindan bashorat qilib bo'lmaydi va boshqarish qiyinlashadi.
+2. HASH: Qatorlarni bir xilda taqsimlash (load balancing) uchun ishlatiladi. HASH bo'yicha 
+   bo'lingan jadvalda ma'lum bir sana oralig'idagi ma'lumotlarni qidirish yoki eski oylik 
+   bo'limlarni DETACH qilish imkonsiz, chunki bitta vaqtdagi ma'lumotlar barcha hash 
+   bo'limlarga tarqalib ketadi.
+
+PARTITIONING UMMAN KERAK BO'LMAYDIGAN VAZIYAT:
+- Agar jadvaldagi umumiy qatorlar soni kichik bo'lsa (masalan, bir necha yuz ming yoki 
+  hatto bir necha million qator ham to'g'ri indekslangan bo'lsa bitta jadvalda sekundning 
+  ulushida ishlaydi), yoki ma'lumotlar hech qachon o'chirilmasa/arxivlanmasa, partitioning 
+  qo'shimcha murakkablik keltirib chiqaradi va shunchaki to'g'ri B-tree indeks (masalan, 
+  sana bo'yicha) hamda vaqti-vaqti bilan eski ma'lumotlarni arxivlash skriptlari yetarli bo'lardi.
 */
 
 
 -- ============================================================================
--- 10. XULOSA
+-- 2. RANGE BO'YICHA BO'LINGAN JADVALNI YARATISH
 -- ============================================================================
--- 1. Umumiy tezlashuv: So'rov dastlabki ~1.2 sekunddan (1200 ms) ~20-30 millisekundgacha tezlashdi (taxminan **40-50 barobar** tezroq).
--- 2. Eng ko'p foyda bergan o'zgarish: **Korrelyatsiyali subquery'larni LEFT JOIN va CTE ga o'tkazish** hamda **indekslarni qo'shish** eng katta samarani berdi. Har bir mijoz uchun alohida jadvalni takroriy skanerlash muammosi to'liq bartaraf etildi.
--- 3. Kutilganidan kamroq foyda bergan qism: LIKE '%@gmail.com' sharti old qismida foiz (%) bo'lgani sababli to'liq B-tree indeksdan foydalana olmadi (Seq Scan yoki Bitmap Scan da filtr sifatida qoldi). Agar email qidiruvi muhim bo'lsa, `pg_trgm` extension yoki Reverse Index ishlatish kerak bo'ladi.
+DROP TABLE IF EXISTS telemetriya CASCADE;
+
+-- Asosiy (parent) jadval. PostgreSQL talabiga ko'ra, PRIMARY KEY ga partition kaliti (sana) kiritilishi shart.
+CREATE TABLE telemetriya (
+    id SERIAL,
+    sana TIMESTAMP NOT NULL,
+    qurilma_id INT,
+    voqea_turi VARCHAR(100),
+    qiymat NUMERIC,
+    PRIMARY KEY (id, sana)
+) PARTITION BY RANGE (sana);
+
+-- Oylik bo'limlar (Partitions) va DEFAULT bo'lim
+CREATE TABLE telemetriya_default PARTITION OF telemetriya DEFAULT;
+
+CREATE TABLE telemetriya_2026_05 PARTITION OF telemetriya 
+    FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+
+CREATE TABLE telemetriya_2026_06 PARTITION OF telemetriya 
+    FOR VALUES FROM ('2026-06-01 00:00:00') TO ('2026-07-01 00:00:00');
+
+CREATE TABLE telemetriya_2026_07 PARTITION OF telemetriya 
+    FOR VALUES FROM ('2026-07-01 00:00:00') TO ('2026-08-01 00:00:00');
+
+CREATE TABLE telemetriya_2026_08 PARTITION OF telemetriya 
+    FOR VALUES FROM ('2026-08-01 00:00:00') TO ('2026-09-01 00:00:00');
+
+
+-- ============================================================================
+-- 3. TEST MA'LUMOTLARINI YUKLASH VA TAQSIMOTNI TEKSHIRISH
+-- ============================================================================
+-- generate_series yordamida 200 000 dan ortiq qator kiritamiz
+INSERT INTO telemetriya (sana, qurilma_id, voqea_turi, qiymat)
+SELECT 
+    '2026-05-01 00:00:00'::timestamp + (random() * INTERVAL '120 days'),
+    (random() * 1000 + 1)::INT,
+    CASE (random() * 3)::INT 
+        WHEN 0 THEN 'click' 
+        WHEN 1 THEN 'scroll' 
+        ELSE 'error' 
+    END,
+    random() * 100
+FROM generate_series(1, 250000) AS i;
+
+-- Qatorlarning bo'limlar bo'yicha taqsimotini tableoid orqali ko'rish
+SELECT 
+    tableoid::regclass AS bolim_nomi,
+    COUNT(*) AS qatorlar_soni
+FROM telemetriya
+GROUP BY tableoid
+ORDER BY bolim_nomi;
+
+
+-- ============================================================================
+-- 4. INDEKS YARATISH
+-- ============================================================================
+/*
+Izoh: Ona jadvalda (parent table) yaratilgan indeks PostgreSQL tomonidan avtomatik 
+ravishda barcha mavjud va keyinchalik yaratiladigan bo'limlarga (partitions) tarqatiladi.
+*/
+CREATE INDEX idx_telemetriya_sana ON telemetriya (sana);
+
+
+-- ============================================================================
+-- 5. PRUNING ISHLAGAN HOLAT
+-- ============================================================================
+-- Filtr to'g'ridan-to'g'ri partition kalitiga qo'yilganda, EXPLAIN rejasida 
+-- faqat bitta mos bo'lim (Append ostida bitta node) qatnashishini ko'ramiz.
+EXPLAIN (FORMAT TEXT)
+SELECT * FROM telemetriya 
+WHERE sana >= '2026-06-01 00:00:00' AND sana < '2026-07-01 00:00:00';
+
+
+-- ============================================================================
+-- 6. PRUNING BUZILGAN HOLAT VA UNI TUZATISH
+-- ============================================================================
+-- BUZILGAN HOLAT: Kalitga funksiya qo'llanganda (EXTRACT), optimizator qaysi 
+-- bo'limga tegishli ekanini oldindan bilolmaydi va BARCHA bo'limlarni skanerlaydi.
+EXPLAIN (FORMAT TEXT)
+SELECT * FROM telemetriya 
+WHERE EXTRACT(MONTH FROM sana) = 6 AND EXTRACT(YEAR FROM sana) = 2026;
+
+-- TUZATILGAN VARIANT: Funksiyadan voz kechib, to'g'ridan-to'g'ri sana oralig'i (Range) ishlatiladi.
+EXPLAIN (FORMAT TEXT)
+SELECT * FROM telemetriya 
+WHERE sana >= '2026-06-01 00:00:00' AND sana < '2026-07-01 00:00:00';
+
+
+-- ============================================================================
+-- 7. DEFAULT BO'LIMSIZ INSERT Xatosi
+-- ============================================================================
+/*
+Izoh: Agar bo'limlar orasiga tushmaydigan sana qiymati kiritilsa va DEFAULT bo'lim 
+mavjud bo'lmasa, quyidagi kabi xato yuzaga keladi:
+"ERROR: no partition of relation "telemetriya" found for row"
+(Buni sinab ko'rish uchun telemetriya_default ni vaqtincha o'chirib, 
+oraliqqa kirmaydigan sanali qator kiritish kifoya).
+*/
+
+
+-- ============================================================================
+-- 8. ARXIVLASH: DETACH VA ATTACH
+-- ============================================================================
+-- Ajratishdan oldingi umumiy qator soni
+SELECT COUNT(*) AS ajratishdan_oldin FROM telemetriya;
+
+-- Eng eski bo'limni (2026-yil May) ajratib olish (Detach)
+ALTER TABLE telemetriya DETACH PARTITION telemetriya_2026_05;
+
+-- Ajratishdan keyingi ona jadvaldagi va alohida olingan arxiv jadvalidagi qator sonlari
+SELECT 'Ona jadval' AS qism, COUNT(*) AS qator_soni FROM telemetriya
+UNION ALL
+SELECT 'Arxiv jadval (telemetriya_2026_05)' AS qism, COUNT(*) AS qator_soni FROM telemetriya_2026_05;
+
+-- Ma'lumot yo'qolmagani isbotlandi (ikkala jadval yig'indisi asl qatorlar soniga teng).
+-- Arxivdan qayta ulash (Attach):
+ALTER TABLE telemetriya ATTACH PARTITION telemetriya_2026_05 
+    FOR VALUES FROM ('2026-05-01 00:00:00') TO ('2026-06-01 00:00:00');
+
+
+-- ============================================================================
+-- 9. UNIQUE CONSTRAINT CHEKlovi
+-- ============================================================================
+/*
+XATO: PostgreSQL'da partitioned jabvallarda UNIQUE yoki PRIMARY KEY cheklovlari 
+albatta partition kalitini (bu yerda 'sana') o'z ichiga olishi SHART. 
+Aks holda quyidagi xato kelib chiqadi:
+"ERROR: unique constraint on partitioned table must include all partitioning columns"
+*/
+-- Xato urinish namunasi (agar ishga tushirilsa xato beradi):
+-- ALTER TABLE telemetriya ADD CONSTRAINT telemetriya_id_uq UNIQUE (id);
+
+-- TO'G'RI VARIANT (Partition kaliti bilan birga kiritish):
+-- ALTER TABLE telemetriya ADD CONSTRAINT telemetriya_id_sana_uq UNIQUE (id, sana);
+
+
+-- ============================================================================
+-- 10. YAKUNIY SAVol (BIR JUMLADA)
+-- ============================================================================
+-- Agar bo'lish LIST bo'yicha (masalan ijarachi/tenant) bo'lganida, sxemada PARTITION BY LIST (tenant_id) 
+-- ishlatilib har bir tenant uchun alohida bo'limlar ochilar edi, so'rovlarda эса sana o'rniga 
+-- WHERE tenant_id = X sharti ishlatilib pruning o'sha tenant bo'limiga yo'naltirilar edi.
