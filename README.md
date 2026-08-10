@@ -1,138 +1,127 @@
 # ============================================================
-# 1) One-to-many — Course <-> Lesson, ikki tomonlama back_populates
+# HAQIQIY misol: app/services/lesson_service.py'dagi get_lessons_by_course
+# (soddalashtirilgan, lekin naqsh o'zgarmagan)
 # ============================================================
+from sqlalchemy import select, and_, or_, func
+from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from sqlalchemy import String, Integer, ForeignKey, Table, Column
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
-class Base(DeclarativeBase):
-    pass
-
-
-class Course(Base):
-    __tablename__ = "courses"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(150))
-
-    lessons: Mapped[List["Lesson"]] = relationship(back_populates="course")
-
-
-class Lesson(Base):
-    __tablename__ = "lessons"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(500))
-    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"))
-
-    course: Mapped["Course"] = relationship(back_populates="lessons")
-
-
-# back_populates ikki tomonni xotirada sinxronlaydi — hali commit qilinmasdan:
-new_lesson = Lesson(title="Yangi dars")
-course = Course(title="Test kurs")
-new_lesson.course = course
-assert new_lesson in course.lessons  # avtomatik — Python darajasida, bazaga tegmasdan
-
-# ============================================================
-# 2) Many-to-many — Student <-> Course, bog'lovchi jadval orqali
-#    (app/models/user.py'dagi HAQIQIY yondashuv, soddalashtirilgan)
-# ============================================================
-student_courses = Table(
-    "student_courses", Base.metadata,
-    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
-    Column("course_id", ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-)
-
-
-class Student(Base):
-    __tablename__ = "students"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    username: Mapped[str] = mapped_column(String(50), unique=True)
-
-    # HAQIQIY misol: app/models/user.py'dagi Student.enrolled_courses
-    enrolled_courses: Mapped[List["Course"]] = relationship(
-        "Course", secondary=student_courses, back_populates="students", lazy="selectin"
+async def get_lessons_by_course(db, course_id: int) -> List["Lesson"]:
+    result = await db.execute(
+        select(Lesson)
+        .where(Lesson.course_id == course_id, Lesson.is_active == True)  # AND — vergul bilan
+        .order_by(Lesson.order)
     )
+    return result.scalars().all()   # bir nechta natija -> ro'yxat
 
 
-# Course klassiga mos qarshi tomonni qo'shamiz:
-Course.students = relationship(
-    "Student", secondary=student_courses, back_populates="enrolled_courses", lazy="selectin"
+# ============================================================
+# 1) .where() — AND (vergul) va OR (or_())
+# ============================================================
+and_stmt = select(Lesson).where(Lesson.course_id == 41, Lesson.points_reward >= 15)
+or_stmt = select(Lesson).where(or_(Lesson.order == 0, Lesson.order == 1))
+combined_stmt = select(Lesson).where(
+    and_(Lesson.course_id == 41, or_(Lesson.order == 0, Lesson.points_reward > 20))
 )
-
-# Foydalanish — hech qanday JOIN yozilmaydi, faqat navigatsiya:
-# student = (await db.execute(select(Student).where(Student.id == 7))).scalar_one()
-# for c in student.enrolled_courses:
-#     print(c.title)
+# 107-kursdagi: WHERE course_id = 41 AND (order = 0 OR points_reward > 20)
 
 # ============================================================
-# 3) cascade="all, delete-orphan" — Student.projects HAQIQIY misoli
+# 2) .join() — ikki usul
 # ============================================================
-class Project(Base):
-    __tablename__ = "projects"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
-    title: Mapped[str] = mapped_column(String(200))
+# (a) relationship() orqali — ORM FOREIGN KEY'ni o'zi topadi:
+join_via_rel = select(Lesson).join(Lesson.course).where(Course.title.ilike("%SQL%"))
 
+# (b) qo'lda, ustun orqali — relationship() bo'lmasa yoki murakkab shart kerak bo'lsa:
+join_manual = select(Lesson).join(Course, Course.id == Lesson.course_id).where(Course.id == 41)
 
-Student.projects = relationship(
-    "Project", back_populates="student", cascade="all, delete-orphan"
+# ============================================================
+# 3) order_by + limit + offset — sahifalash
+# ============================================================
+PAGE_SIZE = 10
+page_2 = (
+    select(Lesson)
+    .where(Lesson.course_id == 41)
+    .order_by(Lesson.order)
+    .limit(PAGE_SIZE)
+    .offset(PAGE_SIZE * 1)   # 2-sahifa
 )
-# Talaba o'chirilsa (yoki student.projects.remove(p) qilinsa va commit
-# bo'lsa) — bog'liq Project qatorlari ORM darajasida ham o'chadi.
-# ondelete="CASCADE" — bazaning o'zida (ORM'siz ham) himoya beradi.
-# cascade="all, delete-orphan" — Python Session darajasida, "yetim" obyekt
-# qolib ketmasligini kafolatlaydi (masalan ro'yxatdan olib tashlanganda).
+# LIMIT'siz so'rov — production'da xavfli: agar jadvalda 1 000 000 qator
+# bo'lsa, ORM ularning HAMMASINI Python obyektiga aylantirishga urinadi.
 
 # ============================================================
-# 4) uselist=False — one-to-one, Student.ranking HAQIQIY misoli
+# 4) Natijani olish shakllari — noto'g'ri tanlov aniq xatoga olib keladi
 # ============================================================
-class Ranking(Base):
-    __tablename__ = "rankings"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), unique=True)
-    position: Mapped[int] = mapped_column(Integer)
+# Aniq bitta natija kutilganda (masalan ID bo'yicha):
+one_lesson = (await db.execute(select(Lesson).where(Lesson.id == 5))).scalar_one()
+# -> topilmasa: NoResultFound, bir nechtasi topilsa: MultipleResultsFound
 
+# Bitta yoki hech nima (masalan ixtiyoriy qidiruv):
+maybe_lesson = (await db.execute(select(Lesson).where(Lesson.id == 999))).scalar_one_or_none()
+# -> topilmasa: None (xato emas)
 
-Student.ranking = relationship(
-    "Ranking", back_populates="student", uselist=False, cascade="all, delete-orphan"
+# Bir nechta natija kutilganda:
+all_lessons = (await db.execute(select(Lesson).where(Lesson.course_id == 41))).scalars().all()
+
+# ============================================================
+# 5) func.count / func.avg — agregatsiya
+# ============================================================
+lesson_count = (await db.execute(
+    select(func.count(Lesson.id)).where(Lesson.course_id == 41)
+)).scalar_one()
+
+avg_points = (await db.execute(
+    select(func.avg(Lesson.points_reward)).where(Lesson.course_id == 41)
+)).scalar_one()
+
+print(f"Kurs 41: {lesson_count} ta dars, o'rtacha {avg_points:.1f} ball")
+
+# ============================================================
+# 6) ilike / in_ / not_ — matn qidiruvi va ro'yxat bilan solishtirish
+# ============================================================
+text_search = select(Course).where(Course.title.ilike("%SQL%"))
+id_in_list = select(Course).where(Course.id.in_([41, 98, 107]))
+negation = select(Lesson).where(~Lesson.is_active)   # yoki not_(Lesson.is_active)
+
+# ============================================================
+# 7) exists() — "hech qanday namunasi yo'q darslarni top"
+# ============================================================
+from sqlalchemy import exists
+
+no_sample_stmt = select(Lesson).where(
+    ~exists().where(LessonSample.lesson_id == Lesson.id)
 )
-# student.ranking -> bitta Ranking obyekti yoki None (RO'YXAT emas)
+# 107-kursdagi: WHERE NOT EXISTS (SELECT 1 FROM lesson_samples WHERE lesson_id = lessons.id)
+# .exists() natijani "bor/yo'q"ga aylantiradi — bazaga butun subquery natijasini
+# emas, faqat mantiqiy javobni so'raydi.
 
 # ============================================================
-# 5) Self-referential munosabat — Course.prerequisite_course_id
-#    (41 <- 98 <- 107 <- bu kurs zanjiri, haqiqiy misol)
+# 8) To'liq funksiya — filtr, join, sahifalash va agregatsiyani birlashtiradi
 # ============================================================
-class CourseWithPrereq(Base):
-    __tablename__ = "courses_v2"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(150))
-    prerequisite_course_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("courses_v2.id", ondelete="SET NULL"), nullable=True
+async def list_lessons_with_progress(db, course_id: int, student_id: int, page: int = 1, page_size: int = 10):
+    """Kurs darslari ro'yxati, har bir dars uchun shu talaba nechta
+    mashqni to'g'ri yechganini ko'rsatuvchi — kurs sahifasida tipik
+    so'rov."""
+    completed_subq = (
+        select(func.count(ExerciseAttempt.id))
+        .where(
+            ExerciseAttempt.student_id == student_id,
+            ExerciseAttempt.exercise_id.in_(
+                select(Exercise.id).where(Exercise.lesson_id == Lesson.id)
+            ),
+            ExerciseAttempt.is_correct == True,
+        )
+        .correlate(Lesson)
+        .scalar_subquery()
     )
-    # foreign_keys= — SQLAlchemy'ga AYNAN qaysi ustun ishlatilishini aytadi,
-    # bir xil jadvalga bir nechta FOREIGN KEY bo'lganda bu shart bo'lib qoladi:
-    prerequisite: Mapped[Optional["CourseWithPrereq"]] = relationship(
-        "CourseWithPrereq", remote_side=[id], foreign_keys=[prerequisite_course_id]
+    stmt = (
+        select(Lesson.id, Lesson.title, Lesson.order, completed_subq.label("completed_count"))
+        .where(Lesson.course_id == course_id, Lesson.is_active == True)
+        .order_by(Lesson.order)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
     )
-
-# 107-kursning prerequisite'i 98, 98-ning prerequisite'i 41:
-# course_107.prerequisite  -> course_98  (obyekt, ID emas)
-# course_107.prerequisite.prerequisite -> course_41
-
-# ============================================================
-# 6) secondary= yetarli bo'lmagan holat — bog'lovchi jadvalda qo'shimcha
-#    ma'lumot kerak bo'lganda
-# ============================================================
-# Agar review_helpful_votes uchun (capstone'da ko'ramiz) ovozning
-# created_at vaqtini ham saqlash kerak bo'lsa, oddiy secondary= jadval
-# yetarli emas — u bog'lovchi jadvalning o'z ustunlariga kirish imkonini
-# bermaydi. Bunday holda bog'lovchi jadval TO'LIQ model sifatida, ikkita
-# relationship() bilan yoziladi:
-class ReviewHelpfulVote(Base):
-    __tablename__ = "review_helpful_votes_v2"
-    review_id: Mapped[int] = mapped_column(ForeignKey("course_reviews.id"), primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), primary_key=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-    # Endi nafaqat "kim ovoz bergani", balki "qachon" ekanini ham bilish
-    # mumkin — bog'lovchi Table() bilan secondary= bunday imkoniyat bermaydi.
+    return (await db.execute(stmt)).all()
+    # Har bir qator: (id, title, order, completed_count) — Lesson obyekti
+    # EMAS, Row — chunki bu yerda faqat ro'yxat ko'rinishi uchun kerakli
+    # yassi ma'lumot kifoya (11-darsdagi over-fetching mavzusiga bog'liq).
