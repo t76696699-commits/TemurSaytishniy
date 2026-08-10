@@ -1,127 +1,148 @@
--- ============================================================
--- 1) Xom SQL yondashuvi (107-kursda ko'rgan uslub)
--- ============================================================
-SELECT l.id, l.title, l."order", c.title AS course_title
-FROM lessons l
-JOIN courses c ON c.id = l.course_id
-WHERE l.course_id = 41
-ORDER BY l."order";
+# ============================================================
+# 1) Core darajasi — jadval va so'rovni QO'LDA, klasssiz qurish
+# ============================================================
+from sqlalchemy import MetaData, Table, Column, Integer, String, select
 
--- Python tomonida natijani QO'LDA obyektga aylantirish kerak bo'ladi:
--- rows = await conn.execute(text(raw_sql))
--- lessons = []
--- for row in rows:
---     lessons.append({"id": row.id, "title": row.title, "course_title": row.course_title})
--- Bu ishlaydi, lekin har bir so'rov uchun shu aylantirish qayta-qayta yoziladi.
+metadata = MetaData()
 
--- ============================================================
--- 2) Xuddi shu narsa — SQLAlchemy 2.x deklarativ ORM bilan
--- ============================================================
-from __future__ import annotations
-from typing import Optional, List
-from sqlalchemy import Integer, String, ForeignKey
+courses_table = Table(
+    "courses", metadata,
+    Column("id", Integer, primary_key=True),
+    Column("title", String(150), nullable=False),
+)
+
+# Core so'rovi — natija Python klassi emas, "Row" obyektlari qaytadi:
+core_stmt = select(courses_table.c.id, courses_table.c.title).where(courses_table.c.id == 41)
+# result = await conn.execute(core_stmt)
+# row = result.first()  # row.id, row.title — lekin bu Course obyekti EMAS
+
+# ============================================================
+# 2) Bog'lovchi (association) jadval — bu platformada Core darajasida
+#    e'lon qilingan haqiqiy misol (app/models/course.py'dan soddalashtirilgan)
+# ============================================================
+from sqlalchemy import ForeignKey, Table as CoreTable
+
+student_courses = CoreTable(
+    "student_courses", metadata,
+    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
+    Column("course_id", ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+)
+# Nega Core? Chunki bu jadvalning o'ziga xos xatti-harakati yo'q — u faqat
+# ikkita ID juftligini saqlaydi. Alohida Python klassi keraksiz murakkablik
+# qo'shgan bo'lardi.
+
+# ============================================================
+# 3) ORM darajasi — xuddi shu Course, endi to'liq deklarativ klass sifatida
+# ============================================================
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from typing import List
 
 
 class Base(DeclarativeBase):
-    # Ushbu platformaning app/db/base_class.py'dagi Base'iga o'xshash —
-    # barcha modellar shundan meros oladi.
     pass
 
 
 class Course(Base):
     __tablename__ = "courses"
-
     id: Mapped[int] = mapped_column(primary_key=True)
     title: Mapped[str] = mapped_column(String(150))
 
-    # Munosabat: bitta kursning ko'p darsi bor (one-to-many).
-    # Bu Python atributi, jadvalda ustun EMAS — 3-darsda batafsil ko'ramiz.
-    lessons: Mapped[List["Lesson"]] = relationship(back_populates="course")
 
-
-class Lesson(Base):
-    __tablename__ = "lessons"
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(500))
-    order: Mapped[int] = mapped_column(Integer, default=0)
-    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id"))
-
-    course: Mapped["Course"] = relationship(back_populates="lessons")
-
+orm_stmt = select(Course).where(Course.id == 41)
+# result = await db.execute(orm_stmt)
+# course = result.scalar_one()   # course — bu HAQIQIY Course obyekti, course.title ishlaydi
 
 # ============================================================
-# 3) So'rov — endi SQL matni emas, Python obyekti qaytadi
+# 4) Engine — app/db/database.py'dagi HAQIQIY sozlash (soddalashtirilgan)
 # ============================================================
-from sqlalchemy import select
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-stmt = select(Lesson).where(Lesson.course_id == 41).order_by(Lesson.order)
-result = await db.execute(stmt)
-lessons = result.scalars().all()
+DATABASE_URL = "postgresql+asyncpg://user:pass@localhost/student_platform"
 
-for lesson in lessons:
-    # .course — bu FOREIGN KEY emas, munosabat orqali AVTOMATIK yuklangan obyekt
-    print(lesson.title, "|", lesson.course.title)
-
-# Hosil bo'lgan haqiqiy SQL'ni har doim ko'rish mumkin — ORM hech narsani
-# yashirmaydi, faqat qo'lda yozishdan qutqaradi:
-print(str(stmt.compile(compile_kwargs={"literal_binds": True})))
-# -> SELECT lessons.id, lessons.title, lessons."order", lessons.course_id
-#    FROM lessons WHERE lessons.course_id = 41 ORDER BY lessons."order"
-
-# ============================================================
-# 4) Identity map — impedance mismatch'ning "identity" muammosini
-#    Session qanday yechadi (6-darsda chuqurroq)
-# ============================================================
-lesson_a = (await db.execute(select(Lesson).where(Lesson.id == 1))).scalar_one()
-lesson_b = (await db.execute(select(Lesson).where(Lesson.id == 1))).scalar_one()
-assert lesson_a is lesson_b  # bir xil Session ichida — bir xil Python obyekti!
-# Bu shunchaki tasodif emas: Session har bir qatorni faqat bir marta
-# xotiraga yuklaydi va keyingi so'rovlarda xuddi shu obyektni qaytaradi.
-
-# ============================================================
-# 5) "Talabaning yakunlagan kurslari + o'rtacha bahosi" — impedance
-#    mismatch'ning aynan matnda tasvirlangan misoli, ikki usulda
-# ============================================================
-
-# --- Xom SQL: bitta JOIN + GROUP BY, natija tekis jadval ---
-REPORT_SQL = '''
-SELECT c.title, AVG(g.score) AS avg_score
-FROM courses c
-JOIN student_courses sc ON sc.course_id = c.id
-JOIN grades g ON g.course_id = c.id AND g.student_id = sc.student_id
-WHERE sc.student_id = :student_id
-GROUP BY c.title;
-'''
-
-# --- ORM: xuddi shu ma'lumot, lekin natija ichma-ich obyektlar sifatida ---
-from sqlalchemy import func
-
-stmt = (
-    select(Course.title, func.avg(Grade.score).label("avg_score"))
-    .join(student_courses, student_courses.c.course_id == Course.id)
-    .join(Grade, (Grade.course_id == Course.id) & (Grade.student_id == student_courses.c.student_id))
-    .where(student_courses.c.student_id == 7)
-    .group_by(Course.title)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,      # True bo'lsa — har bir hosil bo'lgan SQL konsolga chiqadi
+    future=True,
 )
-# rows = (await db.execute(stmt)).all()
-# for title, avg_score in rows:
-#     print(f"{title}: {avg_score:.1f}")
-# Diqqat: bu yerda ham natija hali ham "tekis" qator — chunki aggregatsiya
-# qilingan so'rov ORM'da ham Core kabi Row qaytaradi, to'liq obyekt daraxti
-# emas. To'liq ichma-ich obyekt daraxti kerak bo'lsa, relationship() orqali
-# navigatsiya qilinadi (3-4-darslarda).
+
+# Session — "fabrika", har bir so'rov uchun YANGI instansiya yaratadi:
+AsyncSessionLocal = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,   # commit'dan keyin ham obyekt atributlariga kirish mumkin
+    autoflush=True,
+)
+
 
 # ============================================================
-# 6) Identity amalda — aynan shu platformaning identity map misoli
+# 5) FastAPI dependency — har bir HTTP so'rovi uchun bitta Session
 # ============================================================
-# app/services/lesson_service.py bitta HTTP so'rov davomida ikki marta
-# chaqiriladi (masalan logging middleware + endpoint'ning o'zi):
-first_call = await get_lesson_by_id(db, lesson_id=5)
-second_call = await get_lesson_by_id(db, lesson_id=5)
-assert first_call is second_call
-# Ikkalasi ham AYNAN BIR XIL Python obyektini qaytaradi — Session ikkinchi
-# marta yangi Lesson(5) yaratmaydi, uni identity map'dan oladi. Aynan shu
-# mexanizm ORM darsning boshida tasvirlangan impedance mismatch'ning
-# "identity muammosi"ni bitta ham qo'shimcha kod qatorisiz yechadi.
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
+        # `async with` blokidan chiqishda Session avtomatik yopiladi —
+        # ochiq qolgan Session'lar connection pool'ni tugatib qo'yadi (12-dars).
+
+
+# Endpoint misoli:
+# @router.get("/courses/{course_id}")
+# async def get_course(course_id: int, db: AsyncSession = Depends(get_db)):
+#     result = await db.execute(select(Course).where(Course.id == course_id))
+#     return result.scalar_one_or_none()
+
+# ============================================================
+# 6) Ommaviy (bulk) operatsiyalar uchun Core tanlanadi, ORM emas
+# ============================================================
+# 5000 ta talaba uchun "eslatma yuborildi" belgisini yangilash kerak bo'lsa,
+# ORM orqali 5000 ta obyektni yuklab, birma-bir o'zgartirib, keyin commit
+# qilish — 5000 ta obyektni xotiraga yuklaydi va identity map'ni to'ldiradi.
+# Core orqali esa BITTA UPDATE bayonoti yetarli:
+from sqlalchemy import update
+
+bulk_stmt = (
+    update(student_courses)
+    .where(student_courses.c.course_id == 41)
+    .values(reminder_sent=True)
+)
+# await db.execute(bulk_stmt)
+# await db.commit()
+# Bu — ORM'ning "har doim yaxshi" emasligining aniq misoli: yozish
+# ko'lami katta bo'lsa, Core to'g'ridan-to'g'ri bitta SQL bayonoti hosil
+# qiladi, ORM esa har bir qatorni Python obyektiga aylantirish narxini
+# to'laydi.
+
+# ============================================================
+# 7) echo=True qanday ko'rinishda ishlaydi — ORM hech narsani yashirmaydi
+# ============================================================
+debug_engine = create_async_engine(DATABASE_URL, echo=True)
+# Shu Engine bilan yuqoridagi orm_stmt bajarilsa, konsolga aynan shunday
+# chiqadi:
+#
+# INFO sqlalchemy.engine.Engine SELECT courses.id, courses.title
+# INFO sqlalchemy.engine.Engine FROM courses
+# INFO sqlalchemy.engine.Engine WHERE courses.id = $1::INTEGER
+# INFO sqlalchemy.engine.Engine [generated in 0.00021s] (41,)
+#
+# Bu — production'da DEBUG rejimida (settings.DEBUG orqali) yoqiladigan
+# aynan shu chiqish; har qanday "sirli" ORM xatti-harakatini shu orqali
+# tekshirish mumkin.
+
+# ============================================================
+# 8) Mini-solishtiruv: bir xil vazifa uchun qancha kod kerak
+# ============================================================
+# Xom SQL (psycopg2, ORM'siz):
+#   cur.execute("SELECT id, title FROM courses WHERE id = %s", (41,))
+#   row = cur.fetchone()
+#   course = {"id": row[0], "title": row[1]}   # dict'ga qo'lda aylantirish
+#
+# SQLAlchemy Core:
+#   row = (await conn.execute(select(courses_table).where(courses_table.c.id == 41))).first()
+#   # baribir Row, lekin so'rov qurilishi turdosh (type-safe) va kompozitsiyalanadigan
+#
+# SQLAlchemy ORM:
+#   course = (await db.execute(select(Course).where(Course.id == 41))).scalar_one()
+#   # course.title darhol mavjud, munosabatlar course.lessons ham shunday
+#
+# Farq "sehr"da emas — balki bazaning qatorini Python obyektiga
+# aylantirish rutinasini kim o'z zimmasiga olishida: siz qo'lda, Core
+# qisman, ORM to'liq.
