@@ -1,136 +1,138 @@
 # ============================================================
-# 1) Lesson modeli — bu platformaning HAQIQIY app/models/lesson.py'idan
-#    soddalashtirilgan, lekin muhim qismlari o'zgartirilmagan
+# 1) One-to-many — Course <-> Lesson, ikki tomonlama back_populates
 # ============================================================
-from datetime import datetime
-from typing import Optional, TYPE_CHECKING
-from sqlalchemy import Integer, String, Text, Boolean, DateTime, ForeignKey, func
-from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
-
-if TYPE_CHECKING:
-    from app.models.course import Course  # faqat statik tahlil uchun — aylanma import yo'q
+from typing import List, Optional
+from sqlalchemy import String, Integer, ForeignKey, Table, Column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class Course(Base):
+    __tablename__ = "courses"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(150))
+
+    lessons: Mapped[List["Lesson"]] = relationship(back_populates="course")
+
+
 class Lesson(Base):
     __tablename__ = "lessons"
-
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    course_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False
-    )
-    title: Mapped[str] = mapped_column(String(500), nullable=False)
-
-    # default — Python tomonida INSERT vaqtida qo'yiladi
-    # server_default — bazaning o'zida DEFAULT sifatida saqlanadi (ORM'ni chetlab
-    # o'tgan INSERT'lar uchun ham ishlaydi)
-    order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
-    points_reward: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
-
-    text_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    code_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    is_published: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(500))
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"))
 
     course: Mapped["Course"] = relationship(back_populates="lessons")
 
 
-# ============================================================
-# 2) default vs server_default — amalda farq
-# ============================================================
-new_lesson = Lesson(course_id=41, title="Yangi dars")
-# new_lesson.order hali None — lekin flush/commit vaqtida ORM `default=0`ni qo'yadi
-# db.add(new_lesson)
-# await db.flush()
-# assert new_lesson.order == 0  # Python tomonidagi default ishladi
-
-# Endi tasavvur qiling: boshqa xizmat to'g'ridan-to'g'ri SQL orqali yozadi:
-RAW_INSERT = "INSERT INTO lessons (course_id, title) VALUES (41, 'Boshqa xizmat dars')"
-# Bu yerda Python default HECH QACHON ishga tushmaydi — lekin server_default="0"
-# tufayli baza o'zi order=0 ni qo'yadi. Agar faqat default= bo'lganda edi
-# (server_default'siz), bu qator order=NULL bilan yozilgan bo'lardi.
+# back_populates ikki tomonni xotirada sinxronlaydi — hali commit qilinmasdan:
+new_lesson = Lesson(title="Yangi dars")
+course = Course(title="Test kurs")
+new_lesson.course = course
+assert new_lesson in course.lessons  # avtomatik — Python darajasida, bazaga tegmasdan
 
 # ============================================================
-# 3) Constraint'lar — LessonSample.lesson_id unique misoli
+# 2) Many-to-many — Student <-> Course, bog'lovchi jadval orqali
+#    (app/models/user.py'dagi HAQIQIY yondashuv, soddalashtirilgan)
 # ============================================================
-class LessonSample(Base):
-    __tablename__ = "lesson_samples"
+student_courses = Table(
+    "student_courses", Base.metadata,
+    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
+    Column("course_id", ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+)
 
+
+class Student(Base):
+    __tablename__ = "students"
     id: Mapped[int] = mapped_column(primary_key=True)
-    lesson_id: Mapped[int] = mapped_column(
-        ForeignKey("lessons.id", ondelete="CASCADE"),
-        unique=True,   # bitta darsda faqat bitta namuna — BAZA darajasida kafolatlanadi
-        nullable=False,
-    )
-    title: Mapped[str] = mapped_column(String(500))
+    username: Mapped[str] = mapped_column(String(50), unique=True)
 
-# Ikkinchi marta bir xil lesson_id bilan qo'shishga urinish:
-# db.add(LessonSample(lesson_id=1, title="Ikkinchi namuna"))
-# await db.commit()
-# -> sqlalchemy.exc.IntegrityError: duplicate key value violates unique constraint
-# Bu xato Python validatsiyasida emas, PostgreSQL'ning o'zida sodir bo'ladi —
-# hatto kimdir Pydantic tekshiruvini chetlab o'tsa ham, baza himoyalangan.
-
-# ============================================================
-# 4) Mapped[Optional[...]] va nullable — moslik
-# ============================================================
-class Course(Base):
-    __tablename__ = "courses"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(150), nullable=False)
-    # Optional[int] + nullable=True — ikkalasi mos bo'lishi kerak, aks holda
-    # runtime xatosi emas, faqat mypy ogohlantirishi beriladi:
-    prerequisite_course_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("courses.id", ondelete="SET NULL"), nullable=True
+    # HAQIQIY misol: app/models/user.py'dagi Student.enrolled_courses
+    enrolled_courses: Mapped[List["Course"]] = relationship(
+        "Course", secondary=student_courses, back_populates="students", lazy="selectin"
     )
 
 
+# Course klassiga mos qarshi tomonni qo'shamiz:
+Course.students = relationship(
+    "Student", secondary=student_courses, back_populates="enrolled_courses", lazy="selectin"
+)
+
+# Foydalanish — hech qanday JOIN yozilmaydi, faqat navigatsiya:
+# student = (await db.execute(select(Student).where(Student.id == 7))).scalar_one()
+# for c in student.enrolled_courses:
+#     print(c.title)
+
 # ============================================================
-# 5) __table_args__ — kompozit unique va indeks, 107-kursdagi
-#    CREATE UNIQUE INDEX / CREATE INDEX'ning ORM ekvivalenti
+# 3) cascade="all, delete-orphan" — Student.projects HAQIQIY misoli
 # ============================================================
-from sqlalchemy import Index, UniqueConstraint
-
-
-class StudentNote(Base):
-    __tablename__ = "student_notes"
-    __table_args__ = (
-        # "bitta talaba — bitta darsga — bitta eslatma" qoidasi
-        UniqueConstraint("student_id", "lesson_id", name="uq_student_note_per_lesson"),
-        # kurs ichidagi darslarni tezkor tartiblab olish uchun kompozit indeks
-        Index("ix_note_student_created", "student_id", "created_at"),
-    )
-
+class Project(Base):
+    __tablename__ = "projects"
     id: Mapped[int] = mapped_column(primary_key=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
-    lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"))
-    note_text: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(String(200))
+
+
+Student.projects = relationship(
+    "Project", back_populates="student", cascade="all, delete-orphan"
+)
+# Talaba o'chirilsa (yoki student.projects.remove(p) qilinsa va commit
+# bo'lsa) — bog'liq Project qatorlari ORM darajasida ham o'chadi.
+# ondelete="CASCADE" — bazaning o'zida (ORM'siz ham) himoya beradi.
+# cascade="all, delete-orphan" — Python Session darajasida, "yetim" obyekt
+# qolib ketmasligini kafolatlaydi (masalan ro'yxatdan olib tashlanganda).
+
+# ============================================================
+# 4) uselist=False — one-to-one, Student.ranking HAQIQIY misoli
+# ============================================================
+class Ranking(Base):
+    __tablename__ = "rankings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), unique=True)
+    position: Mapped[int] = mapped_column(Integer)
+
+
+Student.ranking = relationship(
+    "Ranking", back_populates="student", uselist=False, cascade="all, delete-orphan"
+)
+# student.ranking -> bitta Ranking obyekti yoki None (RO'YXAT emas)
+
+# ============================================================
+# 5) Self-referential munosabat — Course.prerequisite_course_id
+#    (41 <- 98 <- 107 <- bu kurs zanjiri, haqiqiy misol)
+# ============================================================
+class CourseWithPrereq(Base):
+    __tablename__ = "courses_v2"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(150))
+    prerequisite_course_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("courses_v2.id", ondelete="SET NULL"), nullable=True
+    )
+    # foreign_keys= — SQLAlchemy'ga AYNAN qaysi ustun ishlatilishini aytadi,
+    # bir xil jadvalga bir nechta FOREIGN KEY bo'lganda bu shart bo'lib qoladi:
+    prerequisite: Mapped[Optional["CourseWithPrereq"]] = relationship(
+        "CourseWithPrereq", remote_side=[id], foreign_keys=[prerequisite_course_id]
+    )
+
+# 107-kursning prerequisite'i 98, 98-ning prerequisite'i 41:
+# course_107.prerequisite  -> course_98  (obyekt, ID emas)
+# course_107.prerequisite.prerequisite -> course_41
+
+# ============================================================
+# 6) secondary= yetarli bo'lmagan holat — bog'lovchi jadvalda qo'shimcha
+#    ma'lumot kerak bo'lganda
+# ============================================================
+# Agar review_helpful_votes uchun (capstone'da ko'ramiz) ovozning
+# created_at vaqtini ham saqlash kerak bo'lsa, oddiy secondary= jadval
+# yetarli emas — u bog'lovchi jadvalning o'z ustunlariga kirish imkonini
+# bermaydi. Bunday holda bog'lovchi jadval TO'LIQ model sifatida, ikkita
+# relationship() bilan yoziladi:
+class ReviewHelpfulVote(Base):
+    __tablename__ = "review_helpful_votes_v2"
+    review_id: Mapped[int] = mapped_column(ForeignKey("course_reviews.id"), primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id"), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-# Bu ikkalasi ham Alembic migratsiyasi orqali BAZAGA yozilishi kerak —
-# modelga qo'shish yetarli emas (8-darsda ko'ramiz):
-#   op.create_unique_constraint("uq_student_note_per_lesson", "student_notes", ["student_id", "lesson_id"])
-#   op.create_index("ix_note_student_created", "student_notes", ["student_id", "created_at"])
-
-# ============================================================
-# 6) Ushbu platformaning haqiqiy modelidan misol — Student.username/email
-# ============================================================
-class StudentReal(Base):
-    __tablename__ = "students"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    # unique=True + index=True birga — ustun bir vaqtda ham noyob, ham
-    # tezkor qidiruv uchun o'z indeksiga ega (app/models/user.py'dagi
-    # haqiqiy qator):
-    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
-# unique=True o'zi allaqachon PostgreSQL'da indeks yaratadi — lekin aniq
-# index=True aniqlik uchun qoldirilgan va Alembic autogenerate bilan mos
-# keladi, aks holda u kod kutayotgan indeksni "ko'rmasligi" mumkin.
+    # Endi nafaqat "kim ovoz bergani", balki "qachon" ekanini ham bilish
+    # mumkin — bog'lovchi Table() bilan secondary= bunday imkoniyat bermaydi.
