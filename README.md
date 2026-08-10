@@ -1,148 +1,136 @@
 # ============================================================
-# 1) Core darajasi — jadval va so'rovni QO'LDA, klasssiz qurish
+# 1) Lesson modeli — bu platformaning HAQIQIY app/models/lesson.py'idan
+#    soddalashtirilgan, lekin muhim qismlari o'zgartirilmagan
 # ============================================================
-from sqlalchemy import MetaData, Table, Column, Integer, String, select
+from datetime import datetime
+from typing import Optional, TYPE_CHECKING
+from sqlalchemy import Integer, String, Text, Boolean, DateTime, ForeignKey, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship, DeclarativeBase
 
-metadata = MetaData()
-
-courses_table = Table(
-    "courses", metadata,
-    Column("id", Integer, primary_key=True),
-    Column("title", String(150), nullable=False),
-)
-
-# Core so'rovi — natija Python klassi emas, "Row" obyektlari qaytadi:
-core_stmt = select(courses_table.c.id, courses_table.c.title).where(courses_table.c.id == 41)
-# result = await conn.execute(core_stmt)
-# row = result.first()  # row.id, row.title — lekin bu Course obyekti EMAS
-
-# ============================================================
-# 2) Bog'lovchi (association) jadval — bu platformada Core darajasida
-#    e'lon qilingan haqiqiy misol (app/models/course.py'dan soddalashtirilgan)
-# ============================================================
-from sqlalchemy import ForeignKey, Table as CoreTable
-
-student_courses = CoreTable(
-    "student_courses", metadata,
-    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
-    Column("course_id", ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
-)
-# Nega Core? Chunki bu jadvalning o'ziga xos xatti-harakati yo'q — u faqat
-# ikkita ID juftligini saqlaydi. Alohida Python klassi keraksiz murakkablik
-# qo'shgan bo'lardi.
-
-# ============================================================
-# 3) ORM darajasi — xuddi shu Course, endi to'liq deklarativ klass sifatida
-# ============================================================
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-from typing import List
+if TYPE_CHECKING:
+    from app.models.course import Course  # faqat statik tahlil uchun — aylanma import yo'q
 
 
 class Base(DeclarativeBase):
     pass
 
 
+class Lesson(Base):
+    __tablename__ = "lessons"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    course_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("courses.id", ondelete="CASCADE"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+
+    # default — Python tomonida INSERT vaqtida qo'yiladi
+    # server_default — bazaning o'zida DEFAULT sifatida saqlanadi (ORM'ni chetlab
+    # o'tgan INSERT'lar uchun ham ishlaydi)
+    order: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    points_reward: Mapped[int] = mapped_column(Integer, default=10, server_default="10")
+
+    text_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    code_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    is_published: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+    course: Mapped["Course"] = relationship(back_populates="lessons")
+
+
+# ============================================================
+# 2) default vs server_default — amalda farq
+# ============================================================
+new_lesson = Lesson(course_id=41, title="Yangi dars")
+# new_lesson.order hali None — lekin flush/commit vaqtida ORM `default=0`ni qo'yadi
+# db.add(new_lesson)
+# await db.flush()
+# assert new_lesson.order == 0  # Python tomonidagi default ishladi
+
+# Endi tasavvur qiling: boshqa xizmat to'g'ridan-to'g'ri SQL orqali yozadi:
+RAW_INSERT = "INSERT INTO lessons (course_id, title) VALUES (41, 'Boshqa xizmat dars')"
+# Bu yerda Python default HECH QACHON ishga tushmaydi — lekin server_default="0"
+# tufayli baza o'zi order=0 ni qo'yadi. Agar faqat default= bo'lganda edi
+# (server_default'siz), bu qator order=NULL bilan yozilgan bo'lardi.
+
+# ============================================================
+# 3) Constraint'lar — LessonSample.lesson_id unique misoli
+# ============================================================
+class LessonSample(Base):
+    __tablename__ = "lesson_samples"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lesson_id: Mapped[int] = mapped_column(
+        ForeignKey("lessons.id", ondelete="CASCADE"),
+        unique=True,   # bitta darsda faqat bitta namuna — BAZA darajasida kafolatlanadi
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(500))
+
+# Ikkinchi marta bir xil lesson_id bilan qo'shishga urinish:
+# db.add(LessonSample(lesson_id=1, title="Ikkinchi namuna"))
+# await db.commit()
+# -> sqlalchemy.exc.IntegrityError: duplicate key value violates unique constraint
+# Bu xato Python validatsiyasida emas, PostgreSQL'ning o'zida sodir bo'ladi —
+# hatto kimdir Pydantic tekshiruvini chetlab o'tsa ham, baza himoyalangan.
+
+# ============================================================
+# 4) Mapped[Optional[...]] va nullable — moslik
+# ============================================================
 class Course(Base):
     __tablename__ = "courses"
     id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(String(150))
-
-
-orm_stmt = select(Course).where(Course.id == 41)
-# result = await db.execute(orm_stmt)
-# course = result.scalar_one()   # course — bu HAQIQIY Course obyekti, course.title ishlaydi
-
-# ============================================================
-# 4) Engine — app/db/database.py'dagi HAQIQIY sozlash (soddalashtirilgan)
-# ============================================================
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-
-DATABASE_URL = "postgresql+asyncpg://user:pass@localhost/student_platform"
-
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,      # True bo'lsa — har bir hosil bo'lgan SQL konsolga chiqadi
-    future=True,
-)
-
-# Session — "fabrika", har bir so'rov uchun YANGI instansiya yaratadi:
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine,
-    class_=AsyncSession,
-    expire_on_commit=False,   # commit'dan keyin ham obyekt atributlariga kirish mumkin
-    autoflush=True,
-)
+    title: Mapped[str] = mapped_column(String(150), nullable=False)
+    # Optional[int] + nullable=True — ikkalasi mos bo'lishi kerak, aks holda
+    # runtime xatosi emas, faqat mypy ogohlantirishi beriladi:
+    prerequisite_course_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("courses.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 # ============================================================
-# 5) FastAPI dependency — har bir HTTP so'rovi uchun bitta Session
+# 5) __table_args__ — kompozit unique va indeks, 107-kursdagi
+#    CREATE UNIQUE INDEX / CREATE INDEX'ning ORM ekvivalenti
 # ============================================================
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
-        # `async with` blokidan chiqishda Session avtomatik yopiladi —
-        # ochiq qolgan Session'lar connection pool'ni tugatib qo'yadi (12-dars).
+from sqlalchemy import Index, UniqueConstraint
 
 
-# Endpoint misoli:
-# @router.get("/courses/{course_id}")
-# async def get_course(course_id: int, db: AsyncSession = Depends(get_db)):
-#     result = await db.execute(select(Course).where(Course.id == course_id))
-#     return result.scalar_one_or_none()
+class StudentNote(Base):
+    __tablename__ = "student_notes"
+    __table_args__ = (
+        # "bitta talaba — bitta darsga — bitta eslatma" qoidasi
+        UniqueConstraint("student_id", "lesson_id", name="uq_student_note_per_lesson"),
+        # kurs ichidagi darslarni tezkor tartiblab olish uchun kompozit indeks
+        Index("ix_note_student_created", "student_id", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
+    lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"))
+    note_text: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+# Bu ikkalasi ham Alembic migratsiyasi orqali BAZAGA yozilishi kerak —
+# modelga qo'shish yetarli emas (8-darsda ko'ramiz):
+#   op.create_unique_constraint("uq_student_note_per_lesson", "student_notes", ["student_id", "lesson_id"])
+#   op.create_index("ix_note_student_created", "student_notes", ["student_id", "created_at"])
 
 # ============================================================
-# 6) Ommaviy (bulk) operatsiyalar uchun Core tanlanadi, ORM emas
+# 6) Ushbu platformaning haqiqiy modelidan misol — Student.username/email
 # ============================================================
-# 5000 ta talaba uchun "eslatma yuborildi" belgisini yangilash kerak bo'lsa,
-# ORM orqali 5000 ta obyektni yuklab, birma-bir o'zgartirib, keyin commit
-# qilish — 5000 ta obyektni xotiraga yuklaydi va identity map'ni to'ldiradi.
-# Core orqali esa BITTA UPDATE bayonoti yetarli:
-from sqlalchemy import update
-
-bulk_stmt = (
-    update(student_courses)
-    .where(student_courses.c.course_id == 41)
-    .values(reminder_sent=True)
-)
-# await db.execute(bulk_stmt)
-# await db.commit()
-# Bu — ORM'ning "har doim yaxshi" emasligining aniq misoli: yozish
-# ko'lami katta bo'lsa, Core to'g'ridan-to'g'ri bitta SQL bayonoti hosil
-# qiladi, ORM esa har bir qatorni Python obyektiga aylantirish narxini
-# to'laydi.
-
-# ============================================================
-# 7) echo=True qanday ko'rinishda ishlaydi — ORM hech narsani yashirmaydi
-# ============================================================
-debug_engine = create_async_engine(DATABASE_URL, echo=True)
-# Shu Engine bilan yuqoridagi orm_stmt bajarilsa, konsolga aynan shunday
-# chiqadi:
-#
-# INFO sqlalchemy.engine.Engine SELECT courses.id, courses.title
-# INFO sqlalchemy.engine.Engine FROM courses
-# INFO sqlalchemy.engine.Engine WHERE courses.id = $1::INTEGER
-# INFO sqlalchemy.engine.Engine [generated in 0.00021s] (41,)
-#
-# Bu — production'da DEBUG rejimida (settings.DEBUG orqali) yoqiladigan
-# aynan shu chiqish; har qanday "sirli" ORM xatti-harakatini shu orqali
-# tekshirish mumkin.
-
-# ============================================================
-# 8) Mini-solishtiruv: bir xil vazifa uchun qancha kod kerak
-# ============================================================
-# Xom SQL (psycopg2, ORM'siz):
-#   cur.execute("SELECT id, title FROM courses WHERE id = %s", (41,))
-#   row = cur.fetchone()
-#   course = {"id": row[0], "title": row[1]}   # dict'ga qo'lda aylantirish
-#
-# SQLAlchemy Core:
-#   row = (await conn.execute(select(courses_table).where(courses_table.c.id == 41))).first()
-#   # baribir Row, lekin so'rov qurilishi turdosh (type-safe) va kompozitsiyalanadigan
-#
-# SQLAlchemy ORM:
-#   course = (await db.execute(select(Course).where(Course.id == 41))).scalar_one()
-#   # course.title darhol mavjud, munosabatlar course.lessons ham shunday
-#
-# Farq "sehr"da emas — balki bazaning qatorini Python obyektiga
-# aylantirish rutinasini kim o'z zimmasiga olishida: siz qo'lda, Core
-# qisman, ORM to'liq.
+class StudentReal(Base):
+    __tablename__ = "students"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    # unique=True + index=True birga — ustun bir vaqtda ham noyob, ham
+    # tezkor qidiruv uchun o'z indeksiga ega (app/models/user.py'dagi
+    # haqiqiy qator):
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+# unique=True o'zi allaqachon PostgreSQL'da indeks yaratadi — lekin aniq
+# index=True aniqlik uchun qoldirilgan va Alembic autogenerate bilan mos
+# keladi, aks holda u kod kutayotgan indeksni "ko'rmasligi" mumkin.
