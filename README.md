@@ -1,40 +1,60 @@
-R2 — Takrorlash: migratsiya va performance bo'yicha amaliyot
-Урок 13 из 14
+Capstone: yangi funksiya uchun ORM sxema va migratsiya rejasi
+Урок 14 из 14
 · 3 раздела
+✓ Пройден
 📝
 Matn
 Matn
 #1
-Ikkinchi yarim yakunlandi — modeldan production'gacha
-8-11-darslarda siz butunlay yangi mas'uliyat qatlamini o'rgandingiz: model yozish yetarli emas, uni HAQIQIY, ishlab turgan production bazasiga XAVFSIZ yetkazish kerak. Alembic'ning revision zanjiri (8-dars), uch bosqichli xavfsiz ustun qo'shish (9-dars), autogenerate'ning haqiqiy xatolari (10-dars, aynan shu platformaning o'z tarixidan), va nihoyat ORM'ning performance tuzoqlari — over-fetching va connection pool (11-dars). Bu — "men modelni to'g'ri yozaman" bilan "men production'ni buzmayman" orasidagi farqni beruvchi bilim.
+Capstone vazifasi: "Kurs sharhlari" (Course Reviews) funksiyasi
+Butun kurs davomida siz LessonFeedback (bitta darsga fikr) tizimini qurdingiz. Capstone'da undan bir daraja yuqoriga chiqamiz: talaba butun KURSNI tugatgandan keyin unga umumiy sharh va bahoQ qoldiradigan Course Review tizimini — modeldan production'gacha, to'liq — loyihalaysiz. Bu vazifa ataylab kattaroq: unda moderatsiya holati (yangi sharh avval "kutilmoqda", keyin "tasdiqlangan" bo'ladi), bitta kursga ko'p sharh, bitta sharhga ko'p "foydali ovoz" kabi bir necha munosabat qatlami bor — bu 0-12-darslarning HAMMASINI talab qiladigan minimal, lekin real domen.
 
-Eng ko'p uchraydigan xatolar — ikkinchi yarim bo'yicha
-Bitta katta migratsiyada hammasini qilish (9-dars) — nullable qo'shish, backfill va NOT NULL qilish ALOHIDA migratsiyalarda bo'lishi kerak.
-autogenerate'ni ko'rmasdan qo'llash (10-dars) — rename har doim drop+add sifatida taklif qilinishi mumkin, bu MA'LUMOT YO'QOTADI.
-Session'ni yopmasdan qoldirish (11-dars) — bu pool tugashiga va butun serverning to'xtashiga olib kelishi mumkin.
-Tranzaksiya ichida tashqi chaqiruv qilish (11-dars) — ulanishni keraksiz uzoq band qilib qo'yadi.
-Bu darsning loyihasi — migratsiya + performance birgalikda
-Bugungi amaliy loyihada siz R1'dagi LessonFeedback tizimiga yangi funksiya qo'shasiz: helpful_count ustuni (boshqa talabalar "foydali" deb belgilagan fikrlar soni). Bu ustunni XAVFSIZ qo'shish (9-dars naqshi bo'yicha), so'ngra uni ko'rsatuvchi so'rovni over-fetching'siz yozish (11-dars) — ikkala yarimni bitta amaliy vazifada birlashtiradi.
+1-qadam: talablarni modelga aylantirish (0-3-darslar)
+Har qanday real loyiha talablardan boshlanadi: "talaba faqat TUGATGAN kursiga sharh yoza oladi" (bu — Enrollment bilan bog'liqlik, constraint emas, business logic); "bitta talaba bitta kursga faqat bitta sharh yozadi" (bu — UniqueConstraint, 2-darsdagi kabi); "sharh 1-5 baho va matn ega" (oddiy ustunlar); "moderatorlar sharhni tasdiqlashi yoki rad etishi kerak" (status ustuni + enum); "boshqa talabalar sharhni foydali deb belgilashi mumkin" (bu ALOHIDA jadval — many-to-many, 3-darsdagi kabi, chunki "kim qaysi sharhni foydali deb belgiladi" ma'lumoti kerak, shunchaki son emas).
 
-Kurs oxiriga tayyorgarlik
-13-dars — capstone — butun kursning yakuniy sinovi: yangi funksiya uchun to'liq ORM sxemasi VA migratsiya rejasini boshidan oxirigacha loyihalash. U yerda 0-12-darslarning barcha tushunchalari kerak bo'ladi — bu darsning maqsadi shu oxirgi qadam uchun tayyorgarlik ko'rishdir.
+Course Review sxemasining vizual rejasi
+one-to-many
 
-Nega bu ikkita mavzu (migratsiya + performance) birga tekshiriladi
-Real loyihalarda bu ikkalasi kamdan-kam alohida uchraydi: yangi ustun qo'shish (migratsiya masalasi) deyarli har doim "bu ustunni qanday samarali o'qish kerak" (performance masalasi) degan savol bilan birga keladi. Shuning uchun bu checkpoint ularni ATAYLAB birlashtirgan holda sinaydi — xuddi production'da bo'lgani kabi, ikkalasi bir vaqtda hal qilinishi kerak bo'lgan yagona vazifa sifatida.
+one-to-many
+(muallif)
 
-O'z-o'zini tekshirish: ikkinchi yarim uchun
-Loyihani topshirishdan oldin: har bir migratsiyangiz alohida-alohida downgrade()ga egami? Katta jadval uchun mo'ljallangan o'zgarishlarni 3 bosqichga bo'ldingizmi? So'rovlaringizda faqat kerakli ustunlar yuklanadimi? Session'lar har doim async with orqali yopiladimi? Bu savollarning har biriga "ha" deb javob bera olish — bu darsning haqiqiy maqsadi.
+many-to-many
+(kim foydali deb belgiladi)
 
-Har bir darsning bir jumlada xulosasi (8-11-darslar)
-8-dars: migratsiya — modeldan production bazasigacha bo'lgan versiyalangan ko'prik; revision zanjiri qaysi tartibda qo'llanishini belgilaydi.
-9-dars: katta jadvalga NOT NULL ustun qo'shish — har doim nullable+backfill+NOT NULL uch bosqichida, BITTA migratsiyada emas.
-10-dars: autogenerate rename'ni drop+add deb ko'radi — bu ma'lumot yo'qotadi; har bir taklif qo'lda tekshirilishi shart.
-11-dars: over-fetching — kerakmagan ustunlarni ham yuklash; connection pool cheklangan, Session yopilmasa u tugaydi.
-Nega aynan helpful_count tanlandi
-Bu misol ataylab tanlangan: u YANGI ustun qo'shishni (migratsiya), uni over-fetching'siz ko'rsatishni (performance) va poyga holatidan xavfsiz oshirishni (tranzaksiya) bitta kichik, lekin real vazifada birlashtiradi — xuddi production'da haqiqiy funksiya so'ralganda bo'lgani kabi.
+many-to-many
 
-Nima uchun checkpoint loyihalari kichik, lekin to'liq bo'ladi
-R1 va R2'dagi loyihalar ataylab kichik hajmda saqlanadi — maqsad "ko'p kod yozish" emas, balki "har bir tushunchani to'g'ri joyida qo'llash"ni tekshirishdir. Kichik hajm katta ma'noni yashirmaydi: bitta UniqueConstraint noto'g'ri qo'yilgan bo'lsa, yoki bitta selectinload() unutilgan bo'lsa, bu kichik loyihada ham xuddi katta production kodidagi kabi aniq ko'rinadi.
+courses
+id PK, title
+
+course_reviews
+id PK, course_id FK, student_id FK,
+rating, text, status (enum)
+
+students
+id PK
+
+review_helpful_votes
+review_id FK, student_id FK
+
+Diagrammada capstone vazifasida loyihalanadigan Course Review sxemasi ko'rsatilgan: course_reviews — courses va students bilan ikkita one-to-many munosabatda (composite UniqueConstraint(student_id, course_id) bilan), review_helpful_votes esa "kim qaysi sharhni foydali deb belgiladi" ma'lumotini saqlovchi alohida many-to-many bog'lovchi jadval.
+
+2-qadam: so'rov naqshlarini oldindan loyihalash (4-6-darslar)
+Model yozishdan oldin "bu ma'lumot qanday o'qiladi" savolini berish kerak: kurs sahifasida so'nggi tasdiqlangan sharhlar ro'yxati (sahifalash bilan, 4-dars), har bir sharh muallifi ismi bilan birga (N+1'siz selectinload, 5-dars), yangi sharh qo'shish va moderatsiya holatini o'zgartirish (tranzaksiya xavfsizligi, 6-dars). Bu savollarga oldindan javob berish — keyinchalik "modelni to'g'ri yozdim, lekin so'rov yozish qiyin" degan holatning oldini oladi.
+
+3-qadam: migratsiya rejasini bosqichlarga bo'lish (8-10-darslar)
+Yangi funksiya odatda BITTA emas, bir NECHTA migratsiyani talab qiladi: (1) asosiy course_reviews jadvalini yaratish (yangi jadval — xavfsiz, mavjud ma'lumotga ta'sir qilmaydi); (2) review_helpful_votes bog'lovchi jadvalini yaratish; (3) agar keyinchalik helpful_count kabi hisoblangan ustun qo'shilsa — 9-darsdagi 3 bosqichli naqsh. Har bir migratsiya downgrade()ga ega bo'lishi va round-trip sinovidan (8-dars) o'tishi kerak.
+
+4-qadam: performance xavfsizlik chegaralarini belgilash (11-dars)
+Loyihalash bosqichidayoq performance qoidalarini yozib qo'yish kerak: kurs sahifasidagi sharhlar ro'yxati load_only() bilan faqat kerakli ustunlarni oladi (to'liq matn emas, qisqa preview); muallif ma'lumoti selectinload() bilan eager yuklanadi; moderatsiya paneli (ko'p sharhni ko'radigan joy) uchun alohida, kattaroq sahifalash chegarasi qo'yiladi. Bu qoidalar — kodni yozishdan OLDIN qog'ozda belgilangan bo'lishi kerak, keyin emas.
+
+Nega bu "capstone" — nima uni maxsus qiladi
+Bu loyiha boshqa darslardan farqli o'laroq bitta tushunchani emas, BUTUN JARAYONNI sinaydi: talabdan modelgacha, modeldan migratsiyagacha, migratsiyadan xavfsiz so'rovgacha. Real ish joyida "ORM'ni bilaman" kamdan-kam alohida talab qilinadi — o'rniga "yangi funksiyani boshidan oxirigacha, xavfsiz va samarali qura olaman" talab qilinadi. Shu — aynan ushbu darsning maqsadi.
+
+Nega Course Review, LessonFeedback emas — domenlarni ataylab farqlash
+R1/R2'da siz LessonFeedback (bitta darsga, oddiy) tizimini qurdingiz. Capstone'da esa ataylab murakkabroq domen tanlangan: Course Review'da moderatsiya holati (uch xil qiymat — statik ikki qiymat emas) va IKKINCHI darajali munosabat (kim qaysi sharhni foydali deb belgiladi) bor. Bu farq ataylab — capstone shunchaki oldingi loyihani takrorlash emas, balki undan bir necha qadam murakkabroq real vaziyatga tayyorlaydi.
+
+Yakuniy baholash mezoni — nima "yaxshi yechim"ni belgilaydi
+Bu loyihada eng muhim narsa — kodning "ishlashi" emas (garchi bu ham zarur), balki HAR BIR QARORNING asoslanganligi: nega aynan shu constraint, nega aynan shu yuklash strategiyasi, nega migratsiya aynan shu tartibda bo'lingan. Yakuniy hisobot — bu texnik bilimni og'zaki tushuntira olish qobiliyatini sinovdan o'tkazadi, bu esa haqiqiy jamoada ishlashning ajralmas qismi.
 
 💻
 Kod
@@ -43,144 +63,117 @@ Kod
 python
  Nusxalash
 # ============================================================
-# Bugungi loyiha: helpful_count — 9-dars (xavfsiz migratsiya) +
-# 11-dars (over-fetching'siz so'rov) birgalikda
+# 1-qadam: modellar — talablardan kelib chiqqan holda (0-3-darslar)
 # ============================================================
+import enum
+from datetime import datetime
+from typing import Optional, List
+from sqlalchemy import (
+    String, Text, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint,
+    CheckConstraint, Index, func, select, update,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload, load_only
 
-# --- 9-dars naqshi: 3 bosqichli xavfsiz ustun qo'shish ---
-# Migratsiya 1:
-def upgrade_add_helpful_count() -> None:
-    op.add_column(
-        'lesson_feedback',
-        sa.Column('helpful_count', sa.Integer(), nullable=True, server_default='0'),
+
+class ReviewStatus(str, enum.Enum):
+    pending = "pending"      # yangi sharh — moderatsiya kutmoqda
+    approved = "approved"    # tasdiqlangan — jamoat ko'radi
+    rejected = "rejected"    # rad etilgan
+
+
+class CourseReview(Base):
+    __tablename__ = "course_reviews"
+    __table_args__ = (
+        # "bitta talaba — bitta kurs — bitta sharh" (talab #2)
+        UniqueConstraint("student_id", "course_id", name="uq_review_per_student_course"),
+        CheckConstraint("rating BETWEEN 1 AND 5", name="ck_review_rating_range"),
+        Index("ix_review_course_status", "course_id", "status"),
     )
 
-# Migratsiya 2 — backfill (aslida barchasi 0 bo'lgani uchun bu holatda
-# server_default allaqachon yetarli, lekin agar boshqa jadvaldan
-# hisoblash kerak bo'lsa — bu qadam ZARUR bo'lardi):
-def upgrade_backfill_helpful_count() -> None:
-    connection = op.get_bind()
-    connection.execute(sa.text(
-        "UPDATE lesson_feedback SET helpful_count = 0 WHERE helpful_count IS NULL"
-    ))
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
+    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"))
+    rating: Mapped[int] = mapped_column(Integer)
+    review_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default=ReviewStatus.pending, server_default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# Migratsiya 3:
-def upgrade_finalize_helpful_count() -> None:
-    op.alter_column('lesson_feedback', 'helpful_count', nullable=False)
+    student: Mapped["Student"] = relationship(back_populates="course_reviews")
+    course: Mapped["Course"] = relationship(back_populates="reviews")
 
 
-# --- 11-dars naqshi: over-fetching'siz ko'rsatish ---
-from sqlalchemy.orm import load_only
+# Ko'p-ko'p munosabat: "kim qaysi sharhni foydali deb belgiladi" (talab #5)
+review_helpful_votes = Table(
+    "review_helpful_votes", Base.metadata,
+    Column("review_id", ForeignKey("course_reviews.id", ondelete="CASCADE"), primary_key=True),
+    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
+)
 
-async def get_top_helpful_feedback(db, lesson_id: int, limit: int = 5):
+
+# ============================================================
+# 2-qadam: so'rov naqshlari — oldindan loyihalangan (4-6-darslar)
+# ============================================================
+async def get_approved_reviews(db, course_id: int, page: int = 1, page_size: int = 10):
     stmt = (
-        select(LessonFeedback)
-        .where(LessonFeedback.lesson_id == lesson_id)
-        .options(load_only(LessonFeedback.id, LessonFeedback.rating, LessonFeedback.helpful_count))
-        .order_by(LessonFeedback.helpful_count.desc())
-        .limit(limit)
+        select(CourseReview)
+        .where(CourseReview.course_id == course_id, CourseReview.status == ReviewStatus.approved)
+        .order_by(CourseReview.created_at.desc())
+        .options(
+            load_only(CourseReview.id, CourseReview.rating, CourseReview.review_text, CourseReview.created_at),
+            selectinload(CourseReview.student).load_only(Student.username, Student.avatar_url),
+        )
+        .limit(page_size)
+        .offset((page - 1) * page_size)
     )
     return (await db.execute(stmt)).scalars().all()
-    # comment ustuni (potentsial uzun matn) YUKLANMAYDI — faqat ro'yxat
-    # ko'rinishida kerak bo'lgan qisqa maydonlar keladi.
 
 
-# --- 6-dars naqshi: helpful_count'ni xavfsiz oshirish (poyga holati) ---
-from sqlalchemy import update
-
-async def mark_feedback_helpful(db, feedback_id: int) -> bool:
-    stmt = (
-        update(LessonFeedback)
-        .where(LessonFeedback.id == feedback_id)
-        .values(helpful_count=LessonFeedback.helpful_count + 1)   # DB darajasida +1 — poyga xavfsiz
-    )
-    result = await db.execute(stmt)
-    await db.commit()
-    return result.rowcount > 0
-    # Diqqat: bu yerda avval o'qib, keyin +1 qilib yozish (read-modify-write)
-    # o'RNIGA to'g'ridan-to'g'ri UPDATE ... SET x = x + 1 ishlatildi — bu
-    # ikkita parallel so'rov bir-birining ustidan yozib yubormasligini
-    # kafolatlaydi (Core darajasidagi atomik operatsiya, 1-darsni eslang).
-
-# ============================================================
-# To'liq Alembic migratsiya fayli — 3 bosqichni HAQIQIY fayl formatida
-# (odatda bular 3 ta ALOHIDA fayl bo'ladi, bu yerda o'quv maqsadida
-# ketma-ket bitta faylda ko'rsatilgan)
-# ============================================================
-"""add helpful_count to lesson_feedback (3-step safe pattern)
-
-Revision ID: ff66aa77bb88
-Revises: ee55ff66aa77
-Create Date: 2026-08-01
-"""
-from alembic import op
-import sqlalchemy as sa
-
-revision = 'ff66aa77bb88'
-down_revision = 'ee55ff66aa77'
-
-
-def upgrade() -> None:
-    # 1-bosqich: nullable ustun, server_default bilan (deyarli zararsiz)
-    op.add_column(
-        'lesson_feedback',
-        sa.Column('helpful_count', sa.Integer(), nullable=True, server_default='0'),
-    )
-    # 2-bosqich: backfill — bu holatda server_default allaqachon 0 qo'ygani
-    # uchun texnik jihatdan ortiqcha, lekin naqshni ko'rsatish uchun qoldirilgan
-    connection = op.get_bind()
-    connection.execute(sa.text(
-        "UPDATE lesson_feedback SET helpful_count = 0 WHERE helpful_count IS NULL"
-    ))
-    # 3-bosqich: endi hammasi to'lgani aniq — NOT NULL qilish xavfsiz
-    op.alter_column('lesson_feedback', 'helpful_count', nullable=False)
-
-
-def downgrade() -> None:
-    op.drop_column('lesson_feedback', 'helpful_count')
-
-# ============================================================
-# Round-trip sinovi — production'ga qo'llashdan OLDIN (8-dars naqshi)
-# ============================================================
-#   alembic upgrade head
-#   alembic downgrade -1
-#   alembic upgrade head
-# Uchala buyruq ham xatosiz o'tishi kerak — aks holda downgrade() da xato bor.
-
-# ============================================================
-# To'liq hayotiy tsikl: FastAPI endpoint'idan xavfsiz yozishgacha
-# ============================================================
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-
-router = APIRouter()
-
-
-@router.post("/lessons/{lesson_id}/feedback/{feedback_id}/helpful")
-async def mark_helpful_endpoint(
-    lesson_id: int, feedback_id: int, db: AsyncSession = Depends(get_db)
-):
-    ok = await mark_feedback_helpful(db, feedback_id)
-    return {"success": ok}
-    # `db` — Depends(get_db) orqali Session (6-dars), funksiya qisqa va
-    # atomik UPDATE ishlatadi (6-dars), ortiqcha ustunlarni o'qimaydi
-    # (11-dars), va ustunning o'zi xavfsiz 3 bosqichli migratsiya bilan
-    # qo'shilgan (9-dars). Bitta kichik endpoint — lekin unda kursning
-    # besh darsi mujassam.
-
-# ============================================================
-# Atomik UPDATE'siz muqobil — nega undan qochiladi
-# ============================================================
-async def mark_feedback_helpful_RISKY(db, feedback_id: int) -> bool:
-    feedback = await db.get(LessonFeedback, feedback_id)
-    if feedback is None:
+async def submit_review(db, student_id: int, course_id: int, rating: int, text: str) -> bool:
+    from sqlalchemy.exc import IntegrityError
+    db.add(CourseReview(student_id=student_id, course_id=course_id, rating=rating, review_text=text))
+    try:
+        await db.commit()
+        return True
+    except IntegrityError:
+        await db.rollback()   # UniqueConstraint buzilgan — allaqachon sharh bor
         return False
-    feedback.helpful_count = feedback.helpful_count + 1   # Python'da read-modify-write
+
+
+async def moderate_review(db, review_id: int, approve: bool) -> None:
+    new_status = ReviewStatus.approved if approve else ReviewStatus.rejected
+    await db.execute(update(CourseReview).where(CourseReview.id == review_id).values(status=new_status))
     await db.commit()
-    return True
-# Agar ikkita so'rov bir vaqtda helpful_count=5'ni o'qisa, ikkalasi ham
-# 6'ni hisoblab, 6'ni yozadi — garchi to'g'ri natija 7 bo'lishi kerak
-# bo'lsa ham. Bu xato hech qanday istisno (exception) tashlamaydi va
-# loglarda ko'rinmaydi — bitta "foydali" ovoz jimgina yo'qoladi. Aynan
-# shuning uchun yuqoridagi mark_feedback_helpful()da baza darajasidagi
-# UPDATE ... SET x = x + 1 ishlatiladi, bu versiya emas.
+
+# ============================================================
+# 3-qadam: migratsiya rejasi (8-10-darslar) — bosqichlar ro'yxati
+# ============================================================
+# Migratsiya A: course_reviews jadvalini yaratish (yangi jadval — xavfsiz)
+# Migratsiya B: review_helpful_votes bog'lovchi jadvalini yaratish
+# Migratsiya C (kelajakda, agar kerak bo'lsa): helpful_count ustuni —
+#   9-darsdagi 3 bosqichli naqsh (nullable -> backfill -> NOT NULL)
+#
+# Har biri: alohida revision, downgrade() bilan, round-trip sinovidan
+# o'tgan (8-dars).
+
+# ============================================================
+# 4-qadam: performance chegaralari (11-dars) — kod yozishdan OLDIN qaror
+# ============================================================
+MAX_REVIEWS_PAGE_SIZE = 20          # kurs sahifasi uchun
+MAX_MODERATION_PAGE_SIZE = 100      # moderatsiya paneli uchun (ko'proq ma'lumot kerak)
+# review_text to'liq matn sifatida FAQAT bitta sharh ochilganda yuklanadi,
+# ro'yxat ko'rinishida emas (over-fetching'dan qochish, 11-dars).
+
+# ============================================================
+# Yakuniy qarorlar xaritasi — qaysi loyihaviy qaror qaysi darsga tegishli
+# ============================================================
+# UniqueConstraint(student_id, course_id)      -> 2-dars (baza darajasidagi cheklov)
+# CheckConstraint(rating BETWEEN 1 AND 5)      -> 2-dars (baza darajasidagi validatsiya)
+# review_helpful_votes alohida jadval sifatida -> 3-dars (many-to-many, Integer emas)
+# selectinload(CourseReview.student)           -> 5-dars (N+1'dan himoya)
+# load_only(...) get_approved_reviews ichida   -> 11-dars (over-fetching'dan himoya)
+# submit_review'da try/except IntegrityError   -> 6-dars (tranzaksiya xavfsizligi)
+# 2 ta alohida migratsiya (A va B)             -> 8-9-dars (tartib va xavfsizlik)
+# async with AsyncSessionLocal() hamma joyda   -> 11-dars (pool tugashining oldini olish)
+#
+# Bu xarita shunchaki rasmiyat emas — aynan shu darsning topshirig'i talab
+# qiladigan yakuniy yozma hisobotning asosini tashkil qiladi.
