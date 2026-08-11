@@ -1,133 +1,124 @@
 # ============================================================
-# 1) flush() vs commit() — ID kerak, lekin hali commit qilmoqchi emassiz
+# Bugungi loyiha uchun tayanch: barcha 0-6-darslar tushunchalari
+# bitta kichik domenda — talaba fikr-mulohaza (feedback) tizimi
 # ============================================================
-new_course = Course(title="Yangi kurs", instructor_id=2, difficulty_level="Advanced",
-                     duration_weeks=4, max_points=100)
-db.add(new_course)
-await db.flush()          # INSERT bajarildi, ID mavjud, lekin hali ROLLBACK mumkin
-print(new_course.id)       # allaqachon mavjud — masalan 501
+from typing import List, Optional
+from datetime import datetime
+from sqlalchemy import String, Integer, Text, ForeignKey, DateTime, func, select
+from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload
 
-new_lesson = Lesson(course_id=new_course.id, title="1-dars", order=0)
-db.add(new_lesson)
-await db.commit()          # ENDI hammasi (course + lesson) BITTA tranzaksiyada yakunlanadi
+# --- 2-dars: model + mapping ---
+class LessonFeedback(Base):
+    __tablename__ = "lesson_feedback_r1"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
+    lesson_id: Mapped[int] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"))
+    rating: Mapped[int] = mapped_column(Integer)  # 1-5
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
-# ============================================================
-# 2) Tranzaksiya atomikligi — hammasi yoki hech nima
-# ============================================================
-try:
-    db.add(Submission(student_id=7, project_id=3, status="pending"))
-    await db.flush()
-    student = await db.get(Student, 7)
-    student.total_points += 50   # xato shu yerda bo'lsa...
-    await db.commit()            # ...bu qator HECH QACHON bajarilmaydi
-except Exception:
-    await db.rollback()          # Submission ham, ball ham bazaga yozilmaydi
+    # --- 3-dars: munosabat ---
+    student: Mapped["Student"] = relationship(back_populates="feedback_entries")
+    lesson: Mapped["Lesson"] = relationship(back_populates="feedback_entries")
 
-# ============================================================
-# 3) HAQIQIY misol: exercise_service.py'dagi mustaqil ish birliklari
-# ============================================================
-async def submit_exercise(db, student_id: int, exercise_id: int, answer: str):
-    submission = Submission(student_id=student_id, exercise_id=exercise_id, answer=answer)
-    db.add(submission)
-    await db.commit()   # asosiy submission — o'z ish birligi, mustaqil commit
 
-    try:
-        # streak yangilash — ALOHIDA, kichikroq ish birligi
-        await bump_streak(db, student_id)
-        await db.commit()
-    except Exception:
-        await db.rollback()   # faqat streak urinishi bekor bo'ladi, submission qoladi
+# --- 4+5-dars: to'g'ri so'rov + eager loading ---
+async def get_lesson_feedback(db, lesson_id: int) -> List[LessonFeedback]:
+    stmt = (
+        select(LessonFeedback)
+        .where(LessonFeedback.lesson_id == lesson_id)
+        .order_by(LessonFeedback.created_at.desc())
+        .options(selectinload(LessonFeedback.student))   # N+1'ning oldini olish
+    )
+    return (await db.execute(stmt)).scalars().all()
 
-    return submission
 
-# ============================================================
-# 4) IntegrityError — poyga holati (race condition) kutilgan xato sifatida
-# ============================================================
+# --- 6-dars: tranzaksiya xavfsizligi ---
 from sqlalchemy.exc import IntegrityError
 
-async def award_completion_points(db, student_id: int, lesson_id: int, points: int):
-    db.add(LessonCompletion(student_id=student_id, lesson_id=lesson_id))  # UniqueConstraint bor
-    student = await db.get(Student, student_id)
-    student.total_points += points
+async def submit_feedback(db, student_id: int, lesson_id: int, rating: int, comment: str):
+    db.add(LessonFeedback(student_id=student_id, lesson_id=lesson_id, rating=rating, comment=comment))
     try:
         await db.commit()
+        return True
     except IntegrityError:
-        # Boshqa parallel so'rov bu yerni BIRINCHI bo'lib to'ldirgan —
-        # bu XATO emas, kutilgan poyga natijasi.
-        await db.rollback()
+        await db.rollback()   # masalan bitta talaba bitta darsga bitta fikr — takroriy urinish
+        return False
+
+
+# --- 4-dars: agregatsiya — o'rtacha bahoni hisoblash ---
+from sqlalchemy import func as sa_func
+
+async def average_rating(db, lesson_id: int) -> float:
+    return (await db.execute(
+        select(sa_func.avg(LessonFeedback.rating)).where(LessonFeedback.lesson_id == lesson_id)
+    )).scalar_one() or 0.0
+
 
 # ============================================================
-# 5) expire_on_commit=False — commit'dan keyin ham atributlar o'qiladi
+# Self-check: N+1 yo'qligini echo=True bilan qo'lda tekshirish
 # ============================================================
-from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
-
-AsyncSessionLocal = async_sessionmaker(
-    bind=engine, class_=AsyncSession, expire_on_commit=False
-)
-# expire_on_commit=False BO'LMASA:
-#   await db.commit()
-#   print(new_course.title)   # -> yana bir SELECT yuboradi (obyekt "eskirgan")
-# expire_on_commit=False BILAN:
-#   await db.commit()
-#   print(new_course.title)   # -> xotiradan, qo'shimcha so'rovsiz
+# debug_engine = create_async_engine(DATABASE_URL, echo=True)
+# feedback_list = await get_lesson_feedback(db, lesson_id=41)
+# for f in feedback_list:
+#     print(f.student.username, f.rating)   # selectinload tufayli YANGI so'rov YO'Q
+#
+# Konsolda ko'rilishi kerak: aynan IKKITA SELECT (LessonFeedback + Student
+# IN(...)), feedback yozuvlari sonidan qat'iy nazar. Agar ko'proq SELECT
+# ko'rinsa — bu selectinload() unutilgan yoki noto'g'ri joyga qo'yilgan
+# degani.
 
 # ============================================================
-# 6) Context manager — Session har doim yopilishini kafolatlash
+# Self-check: har bir dars uchun qisqa "yaxshi/yomon" kod solishtiruvi
 # ============================================================
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()   # xato bo'lsa ham — ulanish pool'ga qaytadi
+# 3-dars — relationship() haqiqatan kerakmi?
+# YOMON: faqat count() uchun butun ro'yxatni yuklash
+bad_count = len((await db.execute(select(LessonFeedback).where(LessonFeedback.lesson_id == 41))).scalars().all())
+# YAXSHI: to'g'ridan-to'g'ri COUNT() ishlatish, obyekt yuklamasdan
+good_count = (await db.execute(select(func.count(LessonFeedback.id)).where(LessonFeedback.lesson_id == 41))).scalar_one()
+
+# 6-dars — mustaqil ish birliklarini aralashtirmaslik
+# YOMON: bitta katta tranzaksiyada bog'liq bo'lmagan ikkita amal
+# YAXSHI: har biri o'z commit()iga ega (yuqoridagi submit_feedback misoli kabi)
 
 # ============================================================
-# 7) begin_nested() — faqat bir qismini bekor qilish (SAVEPOINT)
+# LessonFeedback modulining to'liq xulosasi — barcha qismlar birga
 # ============================================================
-async def submit_with_optional_bonus_check(db, student_id: int, exercise_id: int):
-    submission = Submission(student_id=student_id, exercise_id=exercise_id)
-    db.add(submission)
-    await db.flush()   # asosiy submission tashqi tranzaksiyada
+# 1. Model (2-dars): LessonFeedback, UniqueConstraint(student_id, lesson_id) bilan
+# 2. Munosabatlar (3-dars): student/lesson, back_populates orqali
+# 3. So'rov (4-dars): select().where().order_by() sana bo'yicha tartiblash bilan
+# 4. Eager loading (5-dars): selectinload(LessonFeedback.student) — N+1 o'rniga 2 so'rov
+# 5. Tranzaksiya (6-dars): submit_feedback()da try/except IntegrityError + rollback()
+# 6. Agregatsiya (4-dars): average_rating()da func.avg()
+#
+# Agar yechimingizda shu oltita bandning biri yetishmasa — loyihani
+# topshirishdan oldin tegishli darsga qaytib chiqing.
 
+# ============================================================
+# N+1 uchun mini-test — o'zingiz ishga tushira oladigan oddiy tekshiruv
+# ============================================================
+import logging
+
+def count_queries_during(coro_factory):
+    """Berilgan korutina ishlashi davomida bajarilgan SQL so'rovlari
+    sonini SQLAlchemy Engine loglarini o'qib hisoblaydi."""
+    count = 0
+
+    class _CountingHandler(logging.Handler):
+        def emit(self, record):
+            nonlocal count
+            if "SELECT" in record.getMessage() or "INSERT" in record.getMessage():
+                count += 1
+
+    logger = logging.getLogger("sqlalchemy.engine")
+    handler = _CountingHandler()
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
     try:
-        async with db.begin_nested():   # SAVEPOINT ochiladi
-            bonus = await check_bonus_eligibility(db, student_id)   # xato berishi mumkin
-            if bonus:
-                db.add(BonusAward(student_id=student_id, amount=bonus))
-    except Exception:
-        pass   # faqat SAVEPOINT ichidagi qism bekor bo'ladi — submission qoladi
+        return count
+    finally:
+        logger.removeHandler(handler)
 
-    await db.commit()   # submission (va muvaffaqiyatli bo'lsa BonusAward) saqlanadi
-
-# ============================================================
-# 8) db.get() — identity map orqali qisqa yo'l
-# ============================================================
-student = await db.get(Student, 7)          # identity map'da bo'lsa — SQL YO'Q
-same_student = (await db.execute(
-    select(Student).where(Student.id == 7)
-)).scalar_one()                              # bu HAR DOIM SQL yuboradi
-assert student is same_student               # ikkalasi ham bir xil Python obyekti
-
-# ============================================================
-# 9) FastAPI endpoint ichida to'liq tranzaksiya hayotiy tsikli
-# ============================================================
-@router.post("/exercises/{exercise_id}/submit")
-async def submit_exercise_endpoint(
-    exercise_id: int, answer: str, student_id: int, db: AsyncSession = Depends(get_db)
-):
-    is_correct = check_answer(exercise_id, answer)
-    submission = ExerciseAttempt(student_id=student_id, exercise_id=exercise_id, is_correct=is_correct)
-    db.add(submission)
-    await db.commit()   # birinchi ish birligi — javob urinishining o'zi
-
-    if is_correct:
-        try:
-            await bump_streak(db, student_id)
-            await db.commit()   # ikkinchi, mustaqil ish birligi
-        except Exception:
-            await db.rollback()  # streak muhim emas — javob urinishi allaqachon saqlangan
-
-    return {"correct": is_correct}
-# E'tibor bering: agar ikkalasi BITTA tranzaksiyada bo'lganida va
-# bump_streak() xato bersa, javob urinishining o'zi ham bekor bo'lardi —
-# talaba haqiqiy xatosi bo'lmagan joyda xato ko'rgan bo'lardi.
+# get_lesson_feedback() uchun kutilgan natija: AYNAN 2 ta so'rov
+# (LessonFeedback + Student IN(...) orqali), yozuvlar sonidan qat'iy
+# nazar — agar ko'proq chiqsa, demak biror joyda selectinload() unutilgan.
