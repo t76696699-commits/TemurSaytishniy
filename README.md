@@ -1,60 +1,65 @@
-Capstone: yangi funksiya uchun ORM sxema va migratsiya rejasi
-Урок 14 из 14
+Tranzaksiyalar va Sessiyalar: Unit of Work
+Урок 7 из 14
 · 3 раздела
 ✓ Пройден
 📝
 Matn
 Matn
 #1
-Capstone vazifasi: "Kurs sharhlari" (Course Reviews) funksiyasi
-Butun kurs davomida siz LessonFeedback (bitta darsga fikr) tizimini qurdingiz. Capstone'da undan bir daraja yuqoriga chiqamiz: talaba butun KURSNI tugatgandan keyin unga umumiy sharh va bahoQ qoldiradigan Course Review tizimini — modeldan production'gacha, to'liq — loyihalaysiz. Bu vazifa ataylab kattaroq: unda moderatsiya holati (yangi sharh avval "kutilmoqda", keyin "tasdiqlangan" bo'ladi), bitta kursga ko'p sharh, bitta sharhga ko'p "foydali ovoz" kabi bir necha munosabat qatlami bor — bu 0-12-darslarning HAMMASINI talab qiladigan minimal, lekin real domen.
+Session — bu shunchaki "ulanish" emas, "ish birligi"
+Yangi boshlovchilar ko'pincha Sessionni bazaga ulanish (connection) bilan adashtiradi. Aslida Session — Unit of Work (ish birligi) naqshini amalga oshiradi: u sizning barcha o'zgarishlaringizni (qo'shilgan, o'zgartirilgan, o'chirilgan obyektlar) xotirada kuzatib boradi va faqat commit() chaqirilganda ularning barchasini BITTA tranzaksiyada bazaga yuboradi. Bu platformada har bir HTTP so'rovi o'zining Session'iga ega — app/dependencies.py'dagi get_db() orqali.
 
-1-qadam: talablarni modelga aylantirish (0-3-darslar)
-Har qanday real loyiha talablardan boshlanadi: "talaba faqat TUGATGAN kursiga sharh yoza oladi" (bu — Enrollment bilan bog'liqlik, constraint emas, business logic); "bitta talaba bitta kursga faqat bitta sharh yozadi" (bu — UniqueConstraint, 2-darsdagi kabi); "sharh 1-5 baho va matn ega" (oddiy ustunlar); "moderatorlar sharhni tasdiqlashi yoki rad etishi kerak" (status ustuni + enum); "boshqa talabalar sharhni foydali deb belgilashi mumkin" (bu ALOHIDA jadval — many-to-many, 3-darsdagi kabi, chunki "kim qaysi sharhni foydali deb belgiladi" ma'lumoti kerak, shunchaki son emas).
+flush() vs commit() — ikki xil "bazaga yuborish"
+flush() — Session'dagi kutilayotgan o'zgarishlarni bazaga YUBORADI (INSERT/UPDATE bajaradi), lekin tranzaksiyani YAKUNLAMAYDI — hali ROLLBACK qilish mumkin. commit() esa avval avtomatik flush qiladi, SO'NGRA tranzaksiyani COMMIT bilan yakunlaydi — bundan keyin o'zgarishlarni qaytarib bo'lmaydi. Yangi qo'shilgan obyektning ID'sini commit'dan OLDIN bilish kerak bo'lsa (masalan boshqa obyektga FOREIGN KEY sifatida berish uchun), await db.flush() yetarli — butun tranzaksiyani yakunlash shart emas.
 
-Course Review sxemasining vizual rejasi
-one-to-many
+Tranzaksiya chegaralari — bitta so'rov, bitta "hammasi yoki hech nima"
+107-kursda BEGIN; ... COMMIT; orqali ko'rgan atomiklik tushunchasi ORM'da ham xuddi shunday ishlaydi: agar bitta so'rovda 3 ta jadvalga yozish kerak bo'lsa (masalan yangi Submission + Student ballarini yangilash + Achievement tekshiruvi) va uchinchisi xato bersa, birinchi ikkitasi ham COMMIT bo'lmasligi kerak. Bu platformaning haqiqiy exercise_service.py'sida bu naqsh aniq ko'rinadi: agar bump_streak() xato bersa, faqat SHU qo'shimcha amal rollback() qilinadi, asosiy submission esa allaqachon alohida commit qilingan bo'ladi — bu ataylab qilingan qaror, chunki ikkalasi mustaqil ish birligi hisoblanadi.
 
-one-to-many
-(muallif)
+IntegrityError va rollback — poyga holatlarini (race condition) boshqarish
+Bir vaqtning o'zida ikkita so'rov bir xil UniqueConstraint'ni buzishga urinishi mumkin (masalan ikkala so'rov ham "bu darsni birinchi marta tugatdim" deb his qilib, ball qo'shishga urinadi). Bunday holatda PostgreSQL IntegrityError tashlaydi — bu platformada bu holat maxsus try/except IntegrityError: await db.rollback() orqali ushlanadi: "ikkinchi so'rov yutqazdi" degani, va bu XATO emas, kutilgan poyga holati natijasi. rollback — Session'ni "toza" holatga qaytaradi, keyingi operatsiyalar buzilgan tranzaksiya holatida davom etmaydi.
 
-many-to-many
-(kim foydali deb belgiladi)
+expire_on_commit=False — nega bu platformada ishlatiladi
+Standart holatda, commit()dan keyin Session barcha obyektlarni "eskirgan" (expired) deb belgilaydi — keyingi murojaatda ularni QAYTA bazadan o'qiydi. Bu ba'zan kerak, lekin FastAPI'da endpoint commit()dan keyin obyekt atributlarini javobga qo'shishi kerak bo'lganda muammo tug'diradi (Session allaqachon yopilgan bo'lishi mumkin). Shuning uchun async_sessionmaker(..., expire_on_commit=False) ishlatiladi — commit'dan keyin ham obyekt atributlariga xotiradan (bazaga qayta murojaatsiz) kirish mumkin bo'ladi.
 
-many-to-many
+Context manager — Session har doim yopilishini kafolatlash
+async with AsyncSessionLocal() as session: — bu blok tugaganda (xato bo'lsa ham) Session avtomatik yopiladi. Bu — 12-darsda ko'radigan "connection pool tugashi" muammosining oldini oluvchi eng muhim qoida: agar Session qo'lda yopilmasa (masalan try/finally'siz), u connection pool'dan bitta ulanishni abadiy egallab qoladi.
 
-courses
-id PK, title
+Ichma-ich tranzaksiyalar — begin_nested() va SAVEPOINT
+Ba'zan katta tranzaksiya ichida faqat bir qismini bekor qilish kerak bo'ladi, hammasini emas. PostgreSQL'ning SAVEPOINT mexanizmi buni imkon beradi, ORM darajasida esa async with db.begin_nested(): orqali ishlatiladi. Masalan: asosiy submission saqlanadi, so'ngra ixtiyoriy "bonus tekshiruvi" ichki savepoint ichida ishga tushiriladi — agar bonus tekshiruvi xato bersa, faqat SHU qism bekor bo'ladi, asosiy submission esa tashqi tranzaksiyada saqlanib qoladi.
 
-course_reviews
-id PK, course_id FK, student_id FK,
-rating, text, status (enum)
+Session hayot siklining vizual sxemasi
+yo'q
 
-students
-id PK
+ha
 
-review_helpful_votes
-review_id FK, student_id FK
+bonus xato bersa
 
-Diagrammada capstone vazifasida loyihalanadigan Course Review sxemasi ko'rsatilgan: course_reviews — courses va students bilan ikkita one-to-many munosabatda (composite UniqueConstraint(student_id, course_id) bilan), review_helpful_votes esa "kim qaysi sharhni foydali deb belgiladi" ma'lumotini saqlovchi alohida many-to-many bog'lovchi jadval.
+obyektlarni qo'shish/o'zgartirish
+(xotirada)
 
-2-qadam: so'rov naqshlarini oldindan loyihalash (4-6-darslar)
-Model yozishdan oldin "bu ma'lumot qanday o'qiladi" savolini berish kerak: kurs sahifasida so'nggi tasdiqlangan sharhlar ro'yxati (sahifalash bilan, 4-dars), har bir sharh muallifi ismi bilan birga (N+1'siz selectinload, 5-dars), yangi sharh qo'shish va moderatsiya holatini o'zgartirish (tranzaksiya xavfsizligi, 6-dars). Bu savollarga oldindan javob berish — keyinchalik "modelni to'g'ri yozdim, lekin so'rov yozish qiyin" degan holatning oldini oladi.
+await db.flush()
+INSERT/UPDATE bajariladi,
+lekin qaytarish mumkin
 
-3-qadam: migratsiya rejasini bosqichlarga bo'lish (8-10-darslar)
-Yangi funksiya odatda BITTA emas, bir NECHTA migratsiyani talab qiladi: (1) asosiy course_reviews jadvalini yaratish (yangi jadval — xavfsiz, mavjud ma'lumotga ta'sir qilmaydi); (2) review_helpful_votes bog'lovchi jadvalini yaratish; (3) agar keyinchalik helpful_count kabi hisoblangan ustun qo'shilsa — 9-darsdagi 3 bosqichli naqsh. Har bir migratsiya downgrade()ga ega bo'lishi va round-trip sinovidan (8-dars) o'tishi kerak.
+xato bormi?
 
-4-qadam: performance xavfsizlik chegaralarini belgilash (11-dars)
-Loyihalash bosqichidayoq performance qoidalarini yozib qo'yish kerak: kurs sahifasidagi sharhlar ro'yxati load_only() bilan faqat kerakli ustunlarni oladi (to'liq matn emas, qisqa preview); muallif ma'lumoti selectinload() bilan eager yuklanadi; moderatsiya paneli (ko'p sharhni ko'radigan joy) uchun alohida, kattaroq sahifalash chegarasi qo'yiladi. Bu qoidalar — kodni yozishdan OLDIN qog'ozda belgilangan bo'lishi kerak, keyin emas.
+await db.commit()
+COMMIT — qaytarib bo'lmaydi
 
-Nega bu "capstone" — nima uni maxsus qiladi
-Bu loyiha boshqa darslardan farqli o'laroq bitta tushunchani emas, BUTUN JARAYONNI sinaydi: talabdan modelgacha, modeldan migratsiyagacha, migratsiyadan xavfsiz so'rovgacha. Real ish joyida "ORM'ni bilaman" kamdan-kam alohida talab qilinadi — o'rniga "yangi funksiyani boshidan oxirigacha, xavfsiz va samarali qura olaman" talab qilinadi. Shu — aynan ushbu darsning maqsadi.
+await db.rollback()
+Session tozalanadi
 
-Nega Course Review, LessonFeedback emas — domenlarni ataylab farqlash
-R1/R2'da siz LessonFeedback (bitta darsga, oddiy) tizimini qurdingiz. Capstone'da esa ataylab murakkabroq domen tanlangan: Course Review'da moderatsiya holati (uch xil qiymat — statik ikki qiymat emas) va IKKINCHI darajali munosabat (kim qaysi sharhni foydali deb belgiladi) bor. Bu farq ataylab — capstone shunchaki oldingi loyihani takrorlash emas, balki undan bir necha qadam murakkabroq real vaziyatga tayyorlaydi.
+begin_nested():
+ichki SAVEPOINT
+(masalan bonus tekshiruvi)
 
-Yakuniy baholash mezoni — nima "yaxshi yechim"ni belgilaydi
-Bu loyihada eng muhim narsa — kodning "ishlashi" emas (garchi bu ham zarur), balki HAR BIR QARORNING asoslanganligi: nega aynan shu constraint, nega aynan shu yuklash strategiyasi, nega migratsiya aynan shu tartibda bo'lingan. Yakuniy hisobot — bu texnik bilimni og'zaki tushuntira olish qobiliyatini sinovdan o'tkazadi, bu esa haqiqiy jamoada ishlashning ajralmas qismi.
+faqat SAVEPOINT rollback —
+asosiy submission saqlanib qoladi
+
+Diagramma Session'ning to'liq hayot siklini ko'rsatadi: xotiradagi o'zgarishlar avval flush() bilan bazaga yuboriladi (hali qaytarish mumkin), so'ngra commit() yoki rollback() bilan yakunlanadi; exercise_service.py'dagi haqiqiy naqshga o'xshab, ichki begin_nested() SAVEPOINT'i asosiy tranzaksiyani buzmasdan faqat qo'shimcha amalni bekor qilish imkonini beradi.
+
+db.get() vs select().where(id ==) — bir xil natija, ikki yo'l
+await db.get(Student, 7) — bu PRIMARY KEY bo'yicha qidiruv uchun maxsus qisqartma: agar shu ID Session'ning identity map'ida allaqachon bo'lsa, ORM hatto bazaga so'rov HAM yubormaydi (0-darsdagi identity map misolini eslang). select(Student).where(Student.id == 7) esa har doim so'rov yuboradi, hatto obyekt xotirada bo'lsa ham — chunki bu umumiy so'rov mexanizmi, identity map'ni "qisqa yo'l" sifatida ishlatmaydi.
 
 💻
 Kod
@@ -63,117 +68,135 @@ Kod
 python
  Nusxalash
 # ============================================================
-# 1-qadam: modellar — talablardan kelib chiqqan holda (0-3-darslar)
+# 1) flush() vs commit() — ID kerak, lekin hali commit qilmoqchi emassiz
 # ============================================================
-import enum
-from datetime import datetime
-from typing import Optional, List
-from sqlalchemy import (
-    String, Text, Integer, Boolean, DateTime, ForeignKey, UniqueConstraint,
-    CheckConstraint, Index, func, select, update,
-)
-from sqlalchemy.orm import Mapped, mapped_column, relationship, selectinload, load_only
+new_course = Course(title="Yangi kurs", instructor_id=2, difficulty_level="Advanced",
+                     duration_weeks=4, max_points=100)
+db.add(new_course)
+await db.flush()          # INSERT bajarildi, ID mavjud, lekin hali ROLLBACK mumkin
+print(new_course.id)       # allaqachon mavjud — masalan 501
 
-
-class ReviewStatus(str, enum.Enum):
-    pending = "pending"      # yangi sharh — moderatsiya kutmoqda
-    approved = "approved"    # tasdiqlangan — jamoat ko'radi
-    rejected = "rejected"    # rad etilgan
-
-
-class CourseReview(Base):
-    __tablename__ = "course_reviews"
-    __table_args__ = (
-        # "bitta talaba — bitta kurs — bitta sharh" (talab #2)
-        UniqueConstraint("student_id", "course_id", name="uq_review_per_student_course"),
-        CheckConstraint("rating BETWEEN 1 AND 5", name="ck_review_rating_range"),
-        Index("ix_review_course_status", "course_id", "status"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"))
-    course_id: Mapped[int] = mapped_column(ForeignKey("courses.id", ondelete="CASCADE"))
-    rating: Mapped[int] = mapped_column(Integer)
-    review_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    status: Mapped[str] = mapped_column(String(20), default=ReviewStatus.pending, server_default="pending")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
-
-    student: Mapped["Student"] = relationship(back_populates="course_reviews")
-    course: Mapped["Course"] = relationship(back_populates="reviews")
-
-
-# Ko'p-ko'p munosabat: "kim qaysi sharhni foydali deb belgiladi" (talab #5)
-review_helpful_votes = Table(
-    "review_helpful_votes", Base.metadata,
-    Column("review_id", ForeignKey("course_reviews.id", ondelete="CASCADE"), primary_key=True),
-    Column("student_id", ForeignKey("students.id", ondelete="CASCADE"), primary_key=True),
-)
-
+new_lesson = Lesson(course_id=new_course.id, title="1-dars", order=0)
+db.add(new_lesson)
+await db.commit()          # ENDI hammasi (course + lesson) BITTA tranzaksiyada yakunlanadi
 
 # ============================================================
-# 2-qadam: so'rov naqshlari — oldindan loyihalangan (4-6-darslar)
+# 2) Tranzaksiya atomikligi — hammasi yoki hech nima
 # ============================================================
-async def get_approved_reviews(db, course_id: int, page: int = 1, page_size: int = 10):
-    stmt = (
-        select(CourseReview)
-        .where(CourseReview.course_id == course_id, CourseReview.status == ReviewStatus.approved)
-        .order_by(CourseReview.created_at.desc())
-        .options(
-            load_only(CourseReview.id, CourseReview.rating, CourseReview.review_text, CourseReview.created_at),
-            selectinload(CourseReview.student).load_only(Student.username, Student.avatar_url),
-        )
-        .limit(page_size)
-        .offset((page - 1) * page_size)
-    )
-    return (await db.execute(stmt)).scalars().all()
+try:
+    db.add(Submission(student_id=7, project_id=3, status="pending"))
+    await db.flush()
+    student = await db.get(Student, 7)
+    student.total_points += 50   # xato shu yerda bo'lsa...
+    await db.commit()            # ...bu qator HECH QACHON bajarilmaydi
+except Exception:
+    await db.rollback()          # Submission ham, ball ham bazaga yozilmaydi
 
+# ============================================================
+# 3) HAQIQIY misol: exercise_service.py'dagi mustaqil ish birliklari
+# ============================================================
+async def submit_exercise(db, student_id: int, exercise_id: int, answer: str):
+    submission = Submission(student_id=student_id, exercise_id=exercise_id, answer=answer)
+    db.add(submission)
+    await db.commit()   # asosiy submission — o'z ish birligi, mustaqil commit
 
-async def submit_review(db, student_id: int, course_id: int, rating: int, text: str) -> bool:
-    from sqlalchemy.exc import IntegrityError
-    db.add(CourseReview(student_id=student_id, course_id=course_id, rating=rating, review_text=text))
+    try:
+        # streak yangilash — ALOHIDA, kichikroq ish birligi
+        await bump_streak(db, student_id)
+        await db.commit()
+    except Exception:
+        await db.rollback()   # faqat streak urinishi bekor bo'ladi, submission qoladi
+
+    return submission
+
+# ============================================================
+# 4) IntegrityError — poyga holati (race condition) kutilgan xato sifatida
+# ============================================================
+from sqlalchemy.exc import IntegrityError
+
+async def award_completion_points(db, student_id: int, lesson_id: int, points: int):
+    db.add(LessonCompletion(student_id=student_id, lesson_id=lesson_id))  # UniqueConstraint bor
+    student = await db.get(Student, student_id)
+    student.total_points += points
     try:
         await db.commit()
-        return True
     except IntegrityError:
-        await db.rollback()   # UniqueConstraint buzilgan — allaqachon sharh bor
-        return False
-
-
-async def moderate_review(db, review_id: int, approve: bool) -> None:
-    new_status = ReviewStatus.approved if approve else ReviewStatus.rejected
-    await db.execute(update(CourseReview).where(CourseReview.id == review_id).values(status=new_status))
-    await db.commit()
+        # Boshqa parallel so'rov bu yerni BIRINCHI bo'lib to'ldirgan —
+        # bu XATO emas, kutilgan poyga natijasi.
+        await db.rollback()
 
 # ============================================================
-# 3-qadam: migratsiya rejasi (8-10-darslar) — bosqichlar ro'yxati
+# 5) expire_on_commit=False — commit'dan keyin ham atributlar o'qiladi
 # ============================================================
-# Migratsiya A: course_reviews jadvalini yaratish (yangi jadval — xavfsiz)
-# Migratsiya B: review_helpful_votes bog'lovchi jadvalini yaratish
-# Migratsiya C (kelajakda, agar kerak bo'lsa): helpful_count ustuni —
-#   9-darsdagi 3 bosqichli naqsh (nullable -> backfill -> NOT NULL)
-#
-# Har biri: alohida revision, downgrade() bilan, round-trip sinovidan
-# o'tgan (8-dars).
+from sqlalchemy.ext.asyncio import async_sessionmaker, AsyncSession
+
+AsyncSessionLocal = async_sessionmaker(
+    bind=engine, class_=AsyncSession, expire_on_commit=False
+)
+# expire_on_commit=False BO'LMASA:
+#   await db.commit()
+#   print(new_course.title)   # -> yana bir SELECT yuboradi (obyekt "eskirgan")
+# expire_on_commit=False BILAN:
+#   await db.commit()
+#   print(new_course.title)   # -> xotiradan, qo'shimcha so'rovsiz
 
 # ============================================================
-# 4-qadam: performance chegaralari (11-dars) — kod yozishdan OLDIN qaror
+# 6) Context manager — Session har doim yopilishini kafolatlash
 # ============================================================
-MAX_REVIEWS_PAGE_SIZE = 20          # kurs sahifasi uchun
-MAX_MODERATION_PAGE_SIZE = 100      # moderatsiya paneli uchun (ko'proq ma'lumot kerak)
-# review_text to'liq matn sifatida FAQAT bitta sharh ochilganda yuklanadi,
-# ro'yxat ko'rinishida emas (over-fetching'dan qochish, 11-dars).
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()   # xato bo'lsa ham — ulanish pool'ga qaytadi
 
 # ============================================================
-# Yakuniy qarorlar xaritasi — qaysi loyihaviy qaror qaysi darsga tegishli
+# 7) begin_nested() — faqat bir qismini bekor qilish (SAVEPOINT)
 # ============================================================
-# UniqueConstraint(student_id, course_id)      -> 2-dars (baza darajasidagi cheklov)
-# CheckConstraint(rating BETWEEN 1 AND 5)      -> 2-dars (baza darajasidagi validatsiya)
-# review_helpful_votes alohida jadval sifatida -> 3-dars (many-to-many, Integer emas)
-# selectinload(CourseReview.student)           -> 5-dars (N+1'dan himoya)
-# load_only(...) get_approved_reviews ichida   -> 11-dars (over-fetching'dan himoya)
-# submit_review'da try/except IntegrityError   -> 6-dars (tranzaksiya xavfsizligi)
-# 2 ta alohida migratsiya (A va B)             -> 8-9-dars (tartib va xavfsizlik)
-# async with AsyncSessionLocal() hamma joyda   -> 11-dars (pool tugashining oldini olish)
-#
-# Bu xarita shunchaki rasmiyat emas — aynan shu darsning topshirig'i talab
-# qiladigan yakuniy yozma hisobotning asosini tashkil qiladi.
+async def submit_with_optional_bonus_check(db, student_id: int, exercise_id: int):
+    submission = Submission(student_id=student_id, exercise_id=exercise_id)
+    db.add(submission)
+    await db.flush()   # asosiy submission tashqi tranzaksiyada
+
+    try:
+        async with db.begin_nested():   # SAVEPOINT ochiladi
+            bonus = await check_bonus_eligibility(db, student_id)   # xato berishi mumkin
+            if bonus:
+                db.add(BonusAward(student_id=student_id, amount=bonus))
+    except Exception:
+        pass   # faqat SAVEPOINT ichidagi qism bekor bo'ladi — submission qoladi
+
+    await db.commit()   # submission (va muvaffaqiyatli bo'lsa BonusAward) saqlanadi
+
+# ============================================================
+# 8) db.get() — identity map orqali qisqa yo'l
+# ============================================================
+student = await db.get(Student, 7)          # identity map'da bo'lsa — SQL YO'Q
+same_student = (await db.execute(
+    select(Student).where(Student.id == 7)
+)).scalar_one()                              # bu HAR DOIM SQL yuboradi
+assert student is same_student               # ikkalasi ham bir xil Python obyekti
+
+# ============================================================
+# 9) FastAPI endpoint ichida to'liq tranzaksiya hayotiy tsikli
+# ============================================================
+@router.post("/exercises/{exercise_id}/submit")
+async def submit_exercise_endpoint(
+    exercise_id: int, answer: str, student_id: int, db: AsyncSession = Depends(get_db)
+):
+    is_correct = check_answer(exercise_id, answer)
+    submission = ExerciseAttempt(student_id=student_id, exercise_id=exercise_id, is_correct=is_correct)
+    db.add(submission)
+    await db.commit()   # birinchi ish birligi — javob urinishining o'zi
+
+    if is_correct:
+        try:
+            await bump_streak(db, student_id)
+            await db.commit()   # ikkinchi, mustaqil ish birligi
+        except Exception:
+            await db.rollback()  # streak muhim emas — javob urinishi allaqachon saqlangan
+
+    return {"correct": is_correct}
+# E'tibor bering: agar ikkalasi BITTA tranzaksiyada bo'lganida va
+# bump_streak() xato bersa, javob urinishining o'zi ham bekor bo'lardi —
+# talaba haqiqiy xatosi bo'lmagan joyda xato ko'rgan bo'lardi.
